@@ -748,7 +748,10 @@ export function StairMesh({
   }, [dragging, stair.id, floorBaseY, building, camera, gl.domElement]);
 
   return (
-    <group position={[stair.x, floorBaseY, stair.y]}>
+    <group
+      position={[stair.x, floorBaseY, stair.y]}
+      rotation={[0, ((stair.rotationDeg ?? 0) * Math.PI) / 180, 0]}
+    >
       {/* Big invisible hit target so the gaps between step meshes never
           "miss" a click/tap when selecting or dragging the staircase. */}
       <mesh
