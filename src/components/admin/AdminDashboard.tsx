@@ -42,8 +42,8 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [adminName, setAdminName] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { soft?: boolean }) => {
+    if (!opts?.soft) setLoading(true);
     const res = await api.adminOverview();
     if (res.success && res.data) {
       setData(res.data);
@@ -85,8 +85,7 @@ export default function AdminDashboard() {
           asset="skyline"
           className="absolute inset-0"
           overlay="sunset"
-          priority
-          sizes="100vw"
+          sizes="(max-width: 768px) 100vw, 1200px"
           objectPosition="center 30%"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-[#020617]/85 via-[#020617]/55 to-[#020617]/20" />
@@ -107,7 +106,7 @@ export default function AdminDashboard() {
                 <UserCog size={15} /> Manage users
               </Button>
               <Button
-                onClick={load}
+                onClick={() => load({ soft: true })}
                 variant="ghost"
                 size="sm"
                 className="!border !border-white/20 !bg-white/10 !text-white hover:!bg-white/20"
@@ -148,7 +147,7 @@ export default function AdminDashboard() {
                 API.
               </p>
             </div>
-            <Button onClick={load} variant="secondary" size="sm">
+            <Button onClick={() => void load()} variant="secondary" size="sm">
               Retry
             </Button>
           </div>
