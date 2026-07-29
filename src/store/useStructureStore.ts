@@ -487,6 +487,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
                 riseMm: stairGeo.riseMm,
                 treadMm: stairGeo.treadMm,
                 waistThickness: 0.15,
+                rotationDeg: 0,
               },
             ]
           : [];
@@ -1352,6 +1353,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       riseMm: geo.riseMm,
       treadMm: geo.treadMm,
       waistThickness: 0.15,
+      rotationDeg: 0,
     };
     const floorPlates = get().floorPlates.map((p) =>
       p.floor === floor ? { ...p, stairs: [...p.stairs, stair] } : p
