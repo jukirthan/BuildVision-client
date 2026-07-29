@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Billboard, Line, Text } from "@react-three/drei";
 import type { Pillar } from "@/types/structure";
+import { useLengthUnit } from "@/lib/use-length-unit";
 import { useStructureStore } from "@/store/useStructureStore";
 
 const DIM_COLOR = "#38BDF8";
@@ -88,16 +89,14 @@ function buildPairs(
     .slice(0, MAX_ALL_PAIRS);
 }
 
-function formatMm(meters: number) {
-  return `${Math.round(meters * 1000)} mm`;
-}
-
 function DimensionLine({
   pair,
   lineY,
+  format,
 }: {
   pair: PillarPair;
   lineY: number;
+  format: (meters: number) => string;
 }) {
   const { a, b, horizontalM, verticalM, diagonalM } = pair;
   const midX = (a.x + b.x) / 2;
@@ -135,8 +134,8 @@ function DimensionLine({
 
   const showVertical = verticalM > 0.02;
   const label = showVertical
-    ? `H ${formatMm(horizontalM)}  ·  V ${formatMm(verticalM)}  ·  D ${formatMm(diagonalM)}`
-    : formatMm(horizontalM);
+    ? `H ${format(horizontalM)}  ·  V ${format(verticalM)}  ·  D ${format(diagonalM)}`
+    : format(horizontalM);
 
   return (
     <group>
@@ -170,6 +169,7 @@ export default function PillarDistanceDimensions() {
   const selectedPillarId = useStructureStore((s) => s.selectedPillarId);
   const viewFlags = useStructureStore((s) => s.viewFlags);
   const building = useStructureStore((s) => s.building);
+  const { format } = useLengthUnit();
 
   const mode = viewFlags.dimensionMode ?? "selected";
   const enabled = viewFlags.showDimensions && mode !== "off";
@@ -208,7 +208,12 @@ export default function PillarDistanceDimensions() {
   return (
     <group>
       {pairs.map((pair) => (
-        <DimensionLine key={pair.key} pair={pair} lineY={lineY} />
+        <DimensionLine
+          key={pair.key}
+          pair={pair}
+          lineY={lineY}
+          format={format}
+        />
       ))}
     </group>
   );
