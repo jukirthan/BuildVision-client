@@ -17,7 +17,7 @@ const STEPS: Record<
 > = {
   select: {
     title: "Select & move",
-    body: "Click any pillar, wall, door, or stair. Drag to move. Press Esc to clear.",
+    body: "Click any pillar, wall, door, or stair. Drag to move. Open Geometry to rotate stairs (0° / 90° / 180° / 270°). Esc clears.",
     tone: "info",
   },
   pillar: {
