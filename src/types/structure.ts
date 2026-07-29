@@ -291,6 +291,8 @@ export interface Stair {
   riseMm?: number;
   treadMm?: number;
   waistThickness?: number;
+  /** Plan rotation around the stair centre, degrees (0–360). */
+  rotationDeg?: number;
 }
 
 export interface BuildingConfig {
