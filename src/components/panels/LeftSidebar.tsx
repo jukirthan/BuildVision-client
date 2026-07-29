@@ -19,9 +19,11 @@ import {
 } from "lucide-react";
 import { useIsCompact } from "@/hooks/useMediaQuery";
 import { computeStairFromSteps } from "@/lib/stair-geometry";
+import { useLengthUnit } from "@/lib/use-length-unit";
 import { cn } from "@/lib/utils";
 import { useStructureStore } from "@/store/useStructureStore";
 import type { EditTool } from "@/types/structure";
+import LengthUnitSelect from "@/components/ui/LengthUnitSelect";
 
 const TOOLS: {
   id: EditTool;
@@ -75,27 +77,31 @@ const TOOLS: {
 
 function SimpleField({
   label,
-  value,
-  unit,
-  onChange,
-  min,
-  max,
-  step,
+  valueMeters,
+  onChangeMeters,
+  minMeters,
+  maxMeters,
+  stepMeters,
 }: {
   label: string;
-  value: number;
-  unit: string;
-  onChange: (v: number) => void;
-  min: number;
-  max: number;
-  step: number;
+  valueMeters: number;
+  onChangeMeters: (v: number) => void;
+  minMeters: number;
+  maxMeters: number;
+  stepMeters: number;
 }) {
+  const { label: unitLabel, toDisplay, fromDisplay, decimals } = useLengthUnit();
+  const display = toDisplay(valueMeters);
+  const min = toDisplay(minMeters);
+  const max = toDisplay(maxMeters);
+  const step = Math.max(toDisplay(stepMeters), unitLabel === "cm" ? 1 : 0.01);
+
   return (
     <label className="block space-y-1">
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium text-[#64748b]">{label}</span>
         <span className="font-mono text-[#121820]">
-          {value.toFixed(step < 1 ? 1 : 0)} {unit}
+          {display.toFixed(decimals)} {unitLabel}
         </span>
       </div>
       <input
@@ -103,8 +109,8 @@ function SimpleField({
         min={min}
         max={max}
         step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={display}
+        onChange={(e) => onChangeMeters(fromDisplay(Number(e.target.value)))}
         className="h-2 w-full cursor-pointer appearance-none rounded-full bg-[#e2e8f0] accent-[#2563EB]"
       />
     </label>
@@ -124,6 +130,7 @@ function PanelBody({ onClose }: { onClose?: () => void }) {
   const regenerateFromGrid = useStructureStore((s) => s.regenerateFromGrid);
   const stairStepCount = useStructureStore((s) => s.stairStepCount);
   const setStairStepCount = useStructureStore((s) => s.setStairStepCount);
+  const { format: formatLen } = useLengthUnit();
   const plate = floorPlates.find((p) => p.floor === activeFloor);
   const stairPreview = computeStairFromSteps(
     building.floorHeight,
@@ -204,7 +211,7 @@ function PanelBody({ onClose }: { onClose?: () => void }) {
             </h3>
             <p className="text-xs text-[#64748b]">
               Set how many steps, then click the floor to place. Rise and tread
-              come from floor height ({building.floorHeight.toFixed(2)} m).
+              come from floor height ({formatLen(building.floorHeight)}).
             </p>
             <label className="block space-y-1.5">
               <div className="flex items-center justify-between text-xs">
@@ -247,7 +254,7 @@ function PanelBody({ onClose }: { onClose?: () => void }) {
               <div className="col-span-2 rounded-lg bg-white px-2.5 py-2">
                 <p className="text-[#94a3b8]">Going length · comfort 2R+T</p>
                 <p className="mt-0.5 font-mono text-sm font-semibold text-[#121820]">
-                  {stairPreview.depthM.toFixed(2)} m · {stairPreview.comfortMm}{" "}
+                  {formatLen(stairPreview.depthM)} · {stairPreview.comfortMm}{" "}
                   mm
                   {!stairPreview.riseOk || !stairPreview.comfortOk ? (
                     <span className="ml-1 font-sans text-[10px] font-medium text-amber-600">
@@ -265,35 +272,35 @@ function PanelBody({ onClose }: { onClose?: () => void }) {
         )}
 
         <section className="space-y-3 rounded-2xl border border-[#eef2f6] bg-[#f8fafc] p-3">
-          <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#94a3b8]">
-            Building size
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-[#94a3b8]">
+              Building size
+            </h3>
+            <LengthUnitSelect className="scale-90 origin-right" />
+          </div>
           <SimpleField
             label="Width"
-            value={building.width}
-            unit="m"
-            min={8}
-            max={60}
-            step={0.5}
-            onChange={(width) => setBuilding({ width })}
+            valueMeters={building.width}
+            minMeters={8}
+            maxMeters={60}
+            stepMeters={0.5}
+            onChangeMeters={(width) => setBuilding({ width })}
           />
           <SimpleField
             label="Length"
-            value={building.length}
-            unit="m"
-            min={8}
-            max={60}
-            step={0.5}
-            onChange={(length) => setBuilding({ length })}
+            valueMeters={building.length}
+            minMeters={8}
+            maxMeters={60}
+            stepMeters={0.5}
+            onChangeMeters={(length) => setBuilding({ length })}
           />
           <SimpleField
             label="Floor height"
-            value={building.floorHeight}
-            unit="m"
-            min={2.5}
-            max={5}
-            step={0.1}
-            onChange={(floorHeight) => setBuilding({ floorHeight })}
+            valueMeters={building.floorHeight}
+            minMeters={2.5}
+            maxMeters={5}
+            stepMeters={0.1}
+            onChangeMeters={(floorHeight) => setBuilding({ floorHeight })}
           />
         </section>
 
