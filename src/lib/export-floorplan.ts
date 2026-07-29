@@ -357,24 +357,29 @@ function drawStair(
   const c = toCanvas(layout, stair.x, stair.y);
   const w = stair.width * layout.scale;
   const d = stair.depth * layout.scale;
+  const rot = ((stair.rotationDeg ?? 0) * Math.PI) / 180;
+  ctx.save();
+  ctx.translate(c.cx, c.cy);
+  ctx.rotate(rot);
   ctx.fillStyle = "rgba(168,180,192,0.35)";
   ctx.strokeStyle = "#64748b";
   ctx.lineWidth = 1.5;
-  ctx.fillRect(c.cx - w / 2, c.cy - d / 2, w, d);
-  ctx.strokeRect(c.cx - w / 2, c.cy - d / 2, w, d);
+  ctx.fillRect(-w / 2, -d / 2, w, d);
+  ctx.strokeRect(-w / 2, -d / 2, w, d);
   const steps = 6;
   for (let i = 1; i < steps; i++) {
-    const y = c.cy - d / 2 + (d * i) / steps;
+    const y = -d / 2 + (d * i) / steps;
     ctx.beginPath();
-    ctx.moveTo(c.cx - w / 2, y);
-    ctx.lineTo(c.cx + w / 2, y);
+    ctx.moveTo(-w / 2, y);
+    ctx.lineTo(w / 2, y);
     ctx.stroke();
   }
   ctx.fillStyle = "#475569";
   ctx.font = "600 10px Source Sans 3, Arial, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("STAIR", c.cx, c.cy + 4);
+  ctx.fillText("STAIR", 0, 4);
   ctx.textAlign = "left";
+  ctx.restore();
 }
 
 /** Render active floor as an offscreen canvas. */
@@ -469,8 +474,11 @@ export function exportFloorPlanSvg(payload: FloorPlanPayload) {
     const c = toCanvas(layout, stair.x, stair.y);
     const w = stair.width * scale;
     const d = stair.depth * scale;
+    const rot = stair.rotationDeg ?? 0;
     parts.push(
-      `<rect x="${c.cx - w / 2}" y="${c.cy - d / 2}" width="${w}" height="${d}" fill="rgba(168,180,192,0.35)" stroke="#64748b"/>`
+      `<g transform="translate(${c.cx} ${c.cy}) rotate(${rot})">` +
+        `<rect x="${-w / 2}" y="${-d / 2}" width="${w}" height="${d}" fill="rgba(168,180,192,0.35)" stroke="#64748b"/>` +
+        `</g>`
     );
   }
 
