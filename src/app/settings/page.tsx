@@ -1,11 +1,14 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Ruler } from "lucide-react";
 import AppShell from "@/components/app/AppShell";
 import PageHeader from "@/components/app/PageHeader";
 import Button from "@/components/ui/Button";
+import LengthUnitSelect from "@/components/ui/LengthUnitSelect";
 import { api, getUser, setUser } from "@/lib/api";
+import { useLengthUnit } from "@/lib/use-length-unit";
+import { LENGTH_UNIT_LABELS } from "@/lib/units";
 
 export default function SettingsPage() {
   const [name, setName] = useState("");
@@ -14,6 +17,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const { unit } = useLengthUnit();
 
   useEffect(() => {
     const u = getUser();
@@ -112,6 +116,22 @@ export default function SettingsPage() {
               </Button>
             </div>
           </form>
+        </div>
+
+        <div className="card mt-5 p-6">
+          <p className="flex items-center gap-2 font-display text-sm font-semibold text-text-primary">
+            <Ruler size={15} className="text-accent" /> Length units
+          </p>
+          <p className="mt-1 text-sm text-text-secondary">
+            Choose how dimensions appear in the planner, inspector, and camera
+            measurement tool. Geometry is still stored in meters.
+          </p>
+          <div className="mt-4 max-w-xs">
+            <LengthUnitSelect density="full" />
+          </div>
+          <p className="mt-2 text-xs text-text-tertiary">
+            Current: {LENGTH_UNIT_LABELS[unit]}
+          </p>
         </div>
 
         <div className="card mt-5 p-6">
