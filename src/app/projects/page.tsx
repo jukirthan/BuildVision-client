@@ -68,19 +68,16 @@ export default function ProjectsPage() {
   const [expanded, setExpanded] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
-    const health = await api.health();
-    setApiOnline(health.success);
-    if (!health.success) {
-      setProjects((prev) => prev ?? DEMO_PROJECTS);
-      return;
-    }
-
     const list = await api.listProjects();
     if (list.success && list.data) {
+      setApiOnline(true);
       setProjects(list.data.length ? list.data : DEMO_PROJECTS);
-    } else {
-      setProjects(DEMO_PROJECTS);
+      setError("");
+      return;
     }
+    setApiOnline(false);
+    setProjects((prev) => prev ?? DEMO_PROJECTS);
+    if (list.message) setError(list.message);
   }, []);
 
   useEffect(() => {
