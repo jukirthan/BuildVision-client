@@ -39,6 +39,16 @@ export function metersToFeet(m: number) {
   return m * 3.28084;
 }
 
+export {
+  type LengthUnit,
+  LENGTH_UNITS,
+  LENGTH_UNIT_LABELS,
+  LENGTH_UNIT_SHORT,
+  metersToUnit,
+  unitToMeters,
+  formatLength,
+} from "@/lib/units";
+
 /** Minimum practical sizes used for lightweight sanity warnings — not a full structural check. */
 const MIN_GUIDANCE: Record<string, { min: number; note: string }> = {
   "Pillar width": { min: 0.23, note: "Typical minimum load-bearing column width is ~230mm." },
