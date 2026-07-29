@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const API_ORIGIN = process.env.API_PROXY_ORIGIN || "http://127.0.0.1:5055";
+
 const nextConfig = {
   // Prevent Next's own trailing-slash normalization from redirecting
   // /api/* proxy requests (the Flask backend's routes are trailing-slash
@@ -15,7 +17,7 @@ const nextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: "http://127.0.0.1:5000/api/:path*",
+        destination: `${API_ORIGIN}/api/:path*`,
       },
     ];
   },
