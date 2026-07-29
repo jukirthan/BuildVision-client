@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/cost-estimator";
 import { computeStairFromSteps, defaultStepCount } from "@/lib/stair-geometry";
+import { useLengthUnit } from "@/lib/use-length-unit";
 import { useStructureStore } from "@/store/useStructureStore";
 import type {
   BarDiameterMm,
@@ -107,18 +108,44 @@ function NumInput({
   max?: number;
   unit?: string;
 }) {
+  const {
+    label: lengthLabel,
+    step: lengthStep,
+    decimals,
+    toDisplay,
+    fromDisplay,
+  } = useLengthUnit();
+
+  const isLength = unit === "m";
+  const displayValue = isLength ? toDisplay(value) : value;
+  const displayStep = isLength ? lengthStep : step;
+  const displayMin =
+    min !== undefined ? (isLength ? toDisplay(min) : min) : undefined;
+  const displayMax =
+    max !== undefined ? (isLength ? toDisplay(max) : max) : undefined;
+  const displayUnit = isLength ? lengthLabel : unit;
+
   return (
     <div className="flex items-center gap-2">
       <input
         type="number"
-        value={Number.isFinite(value) ? value : 0}
-        step={step}
-        min={min}
-        max={max}
-        onChange={(e) => onChange(Number(e.target.value))}
+        value={
+          Number.isFinite(displayValue)
+            ? Number(displayValue.toFixed(isLength ? decimals : 4))
+            : 0
+        }
+        step={displayStep}
+        min={displayMin}
+        max={displayMax}
+        onChange={(e) => {
+          const raw = Number(e.target.value);
+          onChange(isLength ? fromDisplay(raw) : raw);
+        }}
         className={cn(inputCls, "font-mono")}
       />
-      {unit && <span className="shrink-0 text-xs text-slate-400">{unit}</span>}
+      {displayUnit && (
+        <span className="shrink-0 text-xs text-slate-400">{displayUnit}</span>
+      )}
     </div>
   );
 }
@@ -230,6 +257,7 @@ export default function PropertyInspector() {
     (s) => s.applyEngineeringRecommendation
   );
   const applyDesignOption = useStructureStore((s) => s.applyDesignOption);
+  const { format: formatLen } = useLengthUnit();
 
   const pillar = pillars.find((p) => p.id === selectedPillarId);
   const beam = beams.find((b) => b.id === selectedBeamId);
@@ -739,8 +767,8 @@ export default function PropertyInspector() {
               />
             </Field>
             <p className="rounded-xl bg-slate-50 px-3 py-2 font-mono text-[11px] text-slate-600">
-              Position · X={pillar.x.toFixed(2)} m · Y={pillar.y.toFixed(2)} m ·
-              Z base=0 · top={pillar.height.toFixed(2)} m
+              Position · X={formatLen(pillar.x)} · Y={formatLen(pillar.y)} ·
+              Z base=0 · top={formatLen(pillar.height)}
             </p>
             <Field label="Rotation">
               <NumInput
@@ -755,8 +783,7 @@ export default function PropertyInspector() {
               />
             </Field>
             <p className="rounded-xl bg-slate-50 px-3 py-2 font-mono text-xs text-slate-600">
-              Section {Math.round(pillar.width * 1000)}×
-              {Math.round(pillar.depth * 1000)} mm
+              Section {formatLen(pillar.width)} × {formatLen(pillar.depth)}
             </p>
           </>
         )}
@@ -794,8 +821,8 @@ export default function PropertyInspector() {
               />
             </Field>
             <p className="text-xs text-slate-500">
-              Span L = {beam.length.toFixed(2)} m · teaching L/14 ≈{" "}
-              {Math.round((beam.length / 14) * 1000)} mm
+              Span L = {formatLen(beam.length)} · teaching L/14 ≈{" "}
+              {formatLen(beam.length / 14)}
             </p>
           </>
         )}
@@ -952,7 +979,7 @@ export default function PropertyInspector() {
               return (
                 <div className="space-y-2 rounded-xl bg-slate-50 px-3 py-2.5 text-[11px] text-slate-600">
                   <p className="font-mono">
-                    Floor height {building.floorHeight.toFixed(2)} m ÷{" "}
+                    Floor height {formatLen(building.floorHeight)} ÷{" "}
                     {geo.stepCount} steps
                   </p>
                   <div className="grid grid-cols-2 gap-2">
@@ -1022,6 +1049,37 @@ export default function PropertyInspector() {
                 onChange={(y) => updateStair(stair.id, { y })}
               />
             </Field>
+            <Field label="Rotation">
+              <NumInput
+                value={stair.rotationDeg ?? 0}
+                step={15}
+                min={0}
+                max={360}
+                unit="°"
+                onChange={(rotationDeg) => {
+                  const normalized =
+                    ((Math.round(rotationDeg) % 360) + 360) % 360;
+                  updateStair(stair.id, { rotationDeg: normalized });
+                }}
+              />
+            </Field>
+            <div className="flex flex-wrap gap-1.5">
+              {[0, 90, 180, 270].map((deg) => (
+                <button
+                  key={deg}
+                  type="button"
+                  onClick={() => updateStair(stair.id, { rotationDeg: deg })}
+                  className={cn(
+                    "rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+                    (stair.rotationDeg ?? 0) === deg
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  )}
+                >
+                  {deg}°
+                </button>
+              ))}
+            </div>
           </>
         )}
 
