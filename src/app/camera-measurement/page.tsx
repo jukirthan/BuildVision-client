@@ -27,6 +27,7 @@ import {
 import AppShell from "@/components/app/AppShell";
 import PageHeader from "@/components/app/PageHeader";
 import Button from "@/components/ui/Button";
+import LengthUnitSelect from "@/components/ui/LengthUnitSelect";
 import {
   ELEMENT_TYPES,
   guidanceFor,
@@ -35,6 +36,8 @@ import {
   type MeasurementPoint,
 } from "@/lib/measurement";
 import { addReport } from "@/lib/reports";
+import { useLengthUnit } from "@/lib/use-length-unit";
+import { LENGTH_UNIT_SHORT } from "@/lib/units";
 
 type Mode = "calibrate" | "measure";
 
@@ -63,13 +66,23 @@ export default function CameraMeasurementPage() {
 
   const [points, setPoints] = useState<MeasurementPoint[]>([]);
   const [mode, setMode] = useState<Mode>("calibrate");
+  const {
+    unit,
+    label: unitLabel,
+    step: unitStepValue,
+    decimals,
+    toDisplay,
+    fromDisplay,
+    format,
+  } = useLengthUnit();
+
   const [calibrationInput, setCalibrationInput] = useState("1");
   const [calibration, setCalibration] = useState<{ meters: number; pixels: number } | null>(
     null
   );
   const [elementType, setElementType] = useState<string>(ELEMENT_TYPES[0]);
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
-  const [manualMeters, setManualMeters] = useState("");
+  const [manualValue, setManualValue] = useState("");
   const [notice, setNotice] = useState("");
 
   const stopStream = useCallback(() => {
@@ -212,7 +225,9 @@ export default function CameraMeasurementPage() {
 
     // Calibration line (persisted visually while in calibrate mode / or always in green if set)
     measurements.forEach((m) => {
-      const label = metersPerPixel ? `${m.type} · ${m.meters.toFixed(2)}m` : m.type;
+      const label = metersPerPixel
+        ? `${m.type} · ${format(m.meters)}`
+        : m.type;
       drawLine(m.p1, m.p2, "#3d5afe", label);
     });
 
@@ -225,7 +240,7 @@ export default function CameraMeasurementPage() {
     if (points.length === 2) {
       drawLine(points[0], points[1], mode === "calibrate" ? "#d97706" : "#16a34a");
     }
-  }, [measurements, points, mode, metersPerPixel, imgReady]);
+  }, [measurements, points, mode, metersPerPixel, imgReady, format]);
 
   const onCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -246,13 +261,18 @@ export default function CameraMeasurementPage() {
       const pixels = pixelDistance(next[0], next[1]);
 
       if (mode === "calibrate") {
-        const real = Number(calibrationInput);
-        if (!real || real <= 0) {
-          setNotice("Enter a valid reference length in meters first.");
+        const entered = Number(calibrationInput);
+        if (!entered || entered <= 0) {
+          setNotice(
+            `Enter a valid reference length in ${LENGTH_UNIT_SHORT[unit]} first.`
+          );
           return [];
         }
-        setCalibration({ meters: real, pixels });
-        setNotice(`Calibrated: ${(pixels / real).toFixed(1)} px/m. Switch to Measure to start.`);
+        const meters = fromDisplay(entered);
+        setCalibration({ meters, pixels });
+        setNotice(
+          `Calibrated: ${(pixels / meters).toFixed(1)} px/m · ${format(meters)} reference. Switch to Measure to start.`
+        );
         return [];
       }
 
@@ -278,8 +298,9 @@ export default function CameraMeasurementPage() {
   };
 
   const addManualMeasurement = () => {
-    const meters = Number(manualMeters);
-    if (!meters || meters <= 0) return;
+    const entered = Number(manualValue);
+    if (!entered || entered <= 0) return;
+    const meters = fromDisplay(entered);
     setMeasurements((prev) => [
       ...prev,
       {
@@ -292,7 +313,7 @@ export default function CameraMeasurementPage() {
         meters,
       },
     ]);
-    setManualMeters("");
+    setManualValue("");
   };
 
   const undoLast = () => setMeasurements((prev) => prev.slice(0, -1));
@@ -305,10 +326,13 @@ export default function CameraMeasurementPage() {
 
   const reportPayload = {
     capturedAt: new Date().toISOString(),
+    displayUnit: unit,
     calibration,
     measurements: measurements.map((m) => ({
       type: m.type,
       meters: Number(m.meters.toFixed(3)),
+      value: Number(toDisplay(m.meters).toFixed(decimals)),
+      unit,
       pixels: Math.round(m.pixels),
     })),
     warnings,
@@ -324,12 +348,13 @@ export default function CameraMeasurementPage() {
   };
 
   const exportCsv = () => {
+    const unitCol = LENGTH_UNIT_SHORT[unit];
     const rows = [
-      ["Type", "Meters", "Feet", "Pixels"],
+      ["Type", unitCol, "Meters", "Pixels"],
       ...measurements.map((m) => [
         m.type,
+        toDisplay(m.meters).toFixed(decimals),
         m.meters.toFixed(3),
-        (m.meters * 3.28084).toFixed(3),
         Math.round(m.pixels).toString(),
       ]),
     ];
@@ -353,7 +378,7 @@ export default function CameraMeasurementPage() {
     y += 5;
     if (calibration) {
       doc.text(
-        `Calibration: ${calibration.meters}m reference over ${Math.round(calibration.pixels)}px`,
+        `Calibration: ${format(calibration.meters)} reference over ${Math.round(calibration.pixels)}px`,
         margin,
         y
       );
@@ -376,7 +401,11 @@ export default function CameraMeasurementPage() {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     measurements.forEach((m) => {
-      doc.text(`${m.type}: ${m.meters.toFixed(2)} m (${(m.meters * 3.28084).toFixed(2)} ft)`, margin, y);
+      doc.text(
+        `${m.type}: ${format(m.meters)} (${m.meters.toFixed(3)} m)`,
+        margin,
+        y
+      );
       y += 5;
     });
 
@@ -517,15 +546,28 @@ export default function CameraMeasurementPage() {
           {/* Controls */}
           <div className="flex flex-col gap-4">
             <div className="card p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="flex items-center gap-2 font-display text-sm font-semibold text-text-primary">
+                  <Ruler size={15} className="text-accent" /> Units
+                </p>
+                <LengthUnitSelect />
+              </div>
+              <p className="text-[11px] text-text-tertiary">
+                Calibration, manual entry, and results use this unit. Values are
+                stored in meters under the hood.
+              </p>
+            </div>
+
+            <div className="card p-4">
               <p className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-text-primary">
                 <Ruler size={15} className="text-accent" /> Calibration
               </p>
               <label className="auth-field">
-                <span>Reference length (m)</span>
+                <span>Reference length ({unitLabel})</span>
                 <input
                   type="number"
                   min={0.01}
-                  step={0.01}
+                  step={unitStepValue}
                   value={calibrationInput}
                   onChange={(e) => setCalibrationInput(e.target.value)}
                   className="auth-input"
@@ -558,7 +600,9 @@ export default function CameraMeasurementPage() {
               </div>
               {calibration && (
                 <p className="mt-2 text-xs text-success">
-                  Scale set: {(calibration.pixels / calibration.meters).toFixed(0)} px/m
+                  Scale set:{" "}
+                  {(calibration.pixels / calibration.meters).toFixed(0)} px/m ·{" "}
+                  {format(calibration.meters)} reference
                 </p>
               )}
             </div>
@@ -583,10 +627,10 @@ export default function CameraMeasurementPage() {
                 <input
                   type="number"
                   min={0.01}
-                  step={0.01}
-                  placeholder="Manual entry (m)"
-                  value={manualMeters}
-                  onChange={(e) => setManualMeters(e.target.value)}
+                  step={unitStepValue}
+                  placeholder={`Manual entry (${unitLabel})`}
+                  value={manualValue}
+                  onChange={(e) => setManualValue(e.target.value)}
                   className="auth-input flex-1"
                 />
                 <Button size="sm" variant="secondary" onClick={addManualMeasurement}>
@@ -629,7 +673,8 @@ export default function CameraMeasurementPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-text-primary">{m.type}</p>
                       <p className="text-xs text-text-tertiary">
-                        {m.meters.toFixed(2)} m · {(m.meters * 3.28084).toFixed(2)} ft
+                        {format(m.meters)}
+                        {unit !== "m" ? ` · ${m.meters.toFixed(3)} m` : ""}
                       </p>
                       {warning && (
                         <p className="mt-1 flex items-center gap-1.5 text-xs text-warning">
