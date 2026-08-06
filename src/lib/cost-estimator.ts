@@ -164,27 +164,59 @@ export function estimateMaterials(
     }
   }
 
+  let excavationVolumeM3 = 0;
   const footing = building?.foundation;
   if (footing) {
-    concreteFootings =
-      footing.width * footing.length * footing.thickness * pillars.length;
-    formwork +=
-      2 * (footing.width + footing.length) * footing.thickness * pillars.length;
+    const type = footing.type ?? "isolated";
+    if (type === "raft") {
+      const matW = (building?.width ?? 20) + 1.2;
+      const matL = (building?.length ?? 15) + 1.2;
+      concreteFootings = matW * matL * footing.thickness;
+      formwork += 2 * (matW + matL) * footing.thickness;
+      excavationVolumeM3 =
+        (matW + 0.6) * (matL + 0.6) * (footing.thickness + 0.4);
+    } else if (type === "strip") {
+      const stripW = Math.min(footing.width, footing.length);
+      const perimeter =
+        2 * ((building?.width ?? 20) + (building?.length ?? 15));
+      concreteFootings = perimeter * stripW * footing.thickness;
+      formwork += perimeter * 2 * footing.thickness;
+      excavationVolumeM3 =
+        perimeter * (stripW + 0.5) * (footing.thickness + 0.35);
+    } else {
+      // isolated / combined / pile — one pad per column
+      const n = Math.max(pillars.length, 1);
+      const scale = type === "combined" ? 1.15 : 1;
+      concreteFootings =
+        footing.width *
+        scale *
+        footing.length *
+        scale *
+        footing.thickness *
+        n;
+      formwork +=
+        2 *
+        (footing.width * scale + footing.length * scale) *
+        footing.thickness *
+        n;
+      if (type === "pile") {
+        // 4 piles × ~2.4m × πr² per column
+        concreteFootings += n * 4 * Math.PI * 0.15 * 0.15 * 2.4;
+      }
+      excavationVolumeM3 =
+        (footing.width * scale + 0.6) *
+        (footing.length * scale + 0.6) *
+        (footing.thickness + 0.3) *
+        n;
+    }
     const mesh = footing.bottomMesh ?? footing.mainBars;
     if (mesh) {
+      const n =
+        type === "raft" || type === "strip" ? 1 : Math.max(pillars.length, 1);
       steel +=
-        barSteelKg(mesh.diameterMm, Math.max(mesh.count, 8), footing.width) *
-        pillars.length;
+        barSteelKg(mesh.diameterMm, Math.max(mesh.count, 8), footing.width) * n;
     }
   }
-
-  const excavationVolumeM3 =
-    footing != null
-      ? (footing.width + 0.6) *
-        (footing.length + 0.6) *
-        (footing.thickness + 0.3) *
-        pillars.length
-      : 0;
 
   const concrete =
     concreteColumns +
@@ -206,8 +238,17 @@ export function estimateMaterials(
   const beamsCost = concreteBeams * RATES.concretePerM3;
   const slabsCost = concreteSlabs * RATES.concretePerM3;
   const wallsCost = brickCost + concreteWalls * RATES.concretePerM3;
-  const roofCost = slabs.length
-    ? slabs[0].area * 12 * (building?.roofType === "slope" ? 1.3 : 1)
+  const roof = building?.roof;
+  const roofType = roof?.type ?? building?.roofType ?? "flat";
+  const roofArea =
+    ((building?.width ?? 0) + (roof?.overhangM ?? 0) * 2) *
+    ((building?.length ?? 0) + (roof?.overhangM ?? 0) * 2);
+  const roofPitchFactor =
+    roofType === "slope" || roofType === "gable" ? 1.25 : 1;
+  const roofMaterialRate =
+    roof?.material === "metal" ? 18 : roof?.material === "tile" ? 22 : 12;
+  const roofCost = roofArea
+    ? roofArea * roofMaterialRate * roofPitchFactor
     : 0;
 
   const totalCost =
