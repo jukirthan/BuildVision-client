@@ -36,6 +36,7 @@ import type {
   MaterialEstimate,
   Opening,
   Pillar,
+  RoofConfig,
   SiteConfig,
   Slab,
   Stair,
@@ -91,6 +92,8 @@ interface StructureStore {
   /** Hide ceilings / floors above active so you can edit interiors. */
   cutaway: boolean;
   viewFlags: ViewFlags;
+  /** Bumped to trigger cinematic camera framing of the current selection. */
+  focusToken: number;
   past: StructureSnapshot[];
   future: StructureSnapshot[];
 
@@ -112,6 +115,9 @@ interface StructureStore {
   removeFloor: (floor?: number) => void;
   setTool: (tool: EditTool) => void;
   setStairStepCount: (n: number) => void;
+  setViewFlags: (patch: Partial<ViewFlags>) => void;
+  /** Frame the camera on the current selection (Iron Man focus). */
+  requestFocusSelection: () => void;
   setDragging: (v: boolean) => void;
   setViewMode: (mode: ViewMode) => void;
   setCutaway: (v: boolean) => void;
@@ -136,10 +142,10 @@ interface StructureStore {
   setSite: (patch: Partial<SiteConfig>) => void;
   setDesign: (patch: Partial<DesignCodes>) => void;
   setFoundation: (patch: Partial<FoundationConfig>) => void;
+  setRoof: (patch: Partial<RoofConfig>) => void;
   applyEngineeringRecommendation: (rec: EngineeringRecommendation) => void;
   applyDesignOption: (opt: DesignOption) => void;
   refreshDesignOptions: () => void;
-  setViewFlags: (patch: Partial<ViewFlags>) => void;
   movePillar: (id: string, x: number, y: number) => void;
   moveWallBy: (id: string, dx: number, dy: number) => void;
   moveStair: (id: string, x: number, y: number) => void;
@@ -232,8 +238,8 @@ const emptyEstimate = (): MaterialEstimate => ({
 });
 
 const defaultViewFlags = (): ViewFlags => ({
-  showLabels: true,
-  showDimensions: true,
+  showLabels: false,
+  showDimensions: false,
   dimensionMode: "selected",
   showReinforcement: false,
   wireframe: false,
@@ -241,7 +247,76 @@ const defaultViewFlags = (): ViewFlags => ({
   sectionView: false,
   snapToGrid: true,
   gridSizeM: 0.25,
+  gizmoMode: "translate",
+  isolateSelection: false,
 });
+
+/** Debounced live cost — keeps inspector edits from thrashing the main thread. */
+let estimateTimer: ReturnType<typeof setTimeout> | null = null;
+/** Debounced full structure rebuild after property-panel patches. */
+let structureDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+type RebuildGet = () => {
+  beams: Beam[];
+  slabs: Slab[];
+  selectedPillarId: string | null;
+  selectedBeamId: string | null;
+  selectedSlabId: string | null;
+  pillars: Pillar[];
+  floorPlates: FloorPlate[];
+  building: BuildingConfig;
+};
+
+function scheduleEstimate(get: RebuildGet, set: (partial: object) => void) {
+  if (estimateTimer) clearTimeout(estimateTimer);
+  estimateTimer = setTimeout(() => {
+    const s = get();
+    set({
+      estimate: estimateMaterials(
+        s.pillars,
+        s.beams,
+        s.slabs,
+        s.floorPlates,
+        s.building.floors,
+        s.building
+      ),
+    });
+  }, 220);
+}
+
+function commitStructure(
+  get: RebuildGet,
+  set: (partial: object) => void,
+  building: BuildingConfig,
+  pillars: Pillar[],
+  floorPlates: FloorPlate[],
+  extra: Record<string, unknown> = {},
+  options?: { footprintChanged?: boolean }
+) {
+  set({ ...rebuild(get, building, pillars, floorPlates, options), ...extra });
+  scheduleEstimate(get, set);
+}
+
+function scheduleCommitStructure(
+  get: RebuildGet,
+  set: (partial: object) => void,
+  extra: Record<string, unknown> = {},
+  options?: { footprintChanged?: boolean }
+) {
+  if (structureDebounceTimer) clearTimeout(structureDebounceTimer);
+  structureDebounceTimer = setTimeout(() => {
+    const s = get();
+    commitStructure(
+      get,
+      set,
+      s.building,
+      s.pillars,
+      s.floorPlates,
+      extra,
+      options
+    );
+  }, 140);
+}
 
 function syncFloorPlates(
   building: BuildingConfig,
@@ -273,13 +348,7 @@ function syncFloorPlates(
 }
 
 function rebuild(
-  get: () => {
-    beams: Beam[];
-    slabs: Slab[];
-    selectedPillarId: string | null;
-    selectedBeamId: string | null;
-    selectedSlabId: string | null;
-  },
+  get: RebuildGet,
   building: BuildingConfig,
   pillars: Pillar[],
   floorPlates: FloorPlate[],
@@ -306,14 +375,6 @@ function rebuild(
     floorPlates,
     options?.footprintChanged ?? false
   );
-  const estimate = estimateMaterials(
-    engineered.pillars,
-    engineered.beams,
-    engineered.slabs,
-    plates,
-    engineered.building.floors,
-    engineered.building
-  );
   const pillar = engineered.pillars.find((p) => p.id === prev.selectedPillarId);
   const beam = engineered.beams.find((b) => b.id === prev.selectedBeamId);
   const slabMember =
@@ -326,13 +387,13 @@ function rebuild(
     pillars: engineered.pillars,
     building: engineered.building,
   });
+  // Cost estimate is applied separately via scheduleEstimate (debounced).
   return {
     building: engineered.building,
     pillars: engineered.pillars,
     beams: engineered.beams,
     slabs: engineered.slabs,
     floorPlates: plates,
-    estimate,
     suggestions: generateLayoutSuggestions(engineered.building),
     designOptions,
     advisor: engineered.advisor,
@@ -367,17 +428,18 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
   designOptions: [],
   advisor: [],
   recommendations: [],
-  inspectorOpen: true,
+  inspectorOpen: false,
   tool: "select",
   wallDraftStart: null,
   stairStepCount: defaultStepCount(3.5),
   leftOpen: true,
-  rightOpen: true,
+  rightOpen: false,
   hydrated: false,
   isDragging: false,
   viewMode: "orbit",
   cutaway: true,
   viewFlags: defaultViewFlags(),
+  focusToken: 0,
   past: [],
   future: [],
 
@@ -577,7 +639,13 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     const keys = Object.keys(patch);
     const visualOnly =
       keys.length > 0 &&
-      keys.every((k) => k === "showAllFloors" || k === "showFoundation" || k === "name");
+      keys.every(
+        (k) =>
+          k === "showAllFloors" ||
+          k === "showFoundation" ||
+          k === "showRoof" ||
+          k === "name"
+      );
     if (!visualOnly) get().pushHistory();
     const prev = get().building;
     const building = { ...prev, ...patch };
@@ -610,6 +678,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     });
     const activeFloor = Math.min(get().activeFloor, building.floors);
     set({ ...rebuilt, activeFloor });
+    scheduleEstimate(get, set);
   },
 
   setActiveFloor: (floor) =>
@@ -663,9 +732,8 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       });
     }
     const floorPlates = [...get().floorPlates, cloned];
-    set({
+    commitStructure(get, set, building, get().pillars, floorPlates, {
       activeFloor: building.floors,
-      ...rebuild(get, building, get().pillars, floorPlates),
       wallDraftStart: null,
     });
   },
@@ -684,9 +752,8 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
         openings: p.openings.map((o) => ({ ...o, floor: idx + 1 })),
         stairs: p.stairs.map((s) => ({ ...s, floor: idx + 1 })),
       }));
-    set({
+    commitStructure(get, set, building, get().pillars, floorPlates, {
       activeFloor: Math.min(get().activeFloor, building.floors),
-      ...rebuild(get, building, get().pillars, floorPlates),
     });
   },
 
@@ -697,17 +764,12 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     // Capture history once when a drag starts (not on every move).
     if (v && !get().isDragging) {
       get().pushHistory();
-      // Never let the properties panel sit on top of the canvas while the
-      // user is actively moving something — auto-hide it the moment a
-      // drag begins, even if it was opened manually beforehand.
-      if (get().inspectorOpen) set({ inspectorOpen: false });
     }
     // On drag end, run a full structural rebuild (deferred from movePillar).
     if (!v && get().isDragging) {
       const { building, pillars, floorPlates } = get();
-      set({
+      commitStructure(get, set, building, pillars, floorPlates, {
         isDragging: false,
-        ...rebuild(get, building, pillars, floorPlates),
       });
       return;
     }
@@ -730,6 +792,8 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
 
   setViewFlags: (patch) =>
     set({ viewFlags: { ...get().viewFlags, ...patch } }),
+
+  requestFocusSelection: () => set({ focusToken: get().focusToken + 1 }),
 
   clearSelection: () =>
     set({
@@ -891,7 +955,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       set({ pillars });
       return;
     }
-    set(rebuild(get, building, pillars, get().floorPlates));
+    commitStructure(get, set, building, pillars, get().floorPlates);
   },
 
   setInspectorOpen: (open) => set({ inspectorOpen: open }),
@@ -909,10 +973,9 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       );
       return next;
     });
-    set({
-      ...rebuild(get, get().building, pillars, get().floorPlates),
-      selectedPillarId: id,
-    });
+    // Immediate geometry for snappy inspector; debounce engine + cost.
+    set({ pillars, selectedPillarId: id });
+    scheduleCommitStructure(get, set, { selectedPillarId: id });
   },
 
   updateBeam: (id, patch) => {
@@ -920,12 +983,8 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     const beams = get().beams.map((b) =>
       b.id === id ? { ...b, ...patch } : b
     );
-    // Temporarily set beams so rebuild preserves patched sizes
-    set({ beams });
-    set({
-      ...rebuild(get, get().building, get().pillars, get().floorPlates),
-      selectedBeamId: id,
-    });
+    set({ beams, selectedBeamId: id });
+    scheduleCommitStructure(get, set, { selectedBeamId: id });
   },
 
   updateSlab: (id, patch) => {
@@ -933,11 +992,8 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     const slabs = get().slabs.map((s) =>
       s.id === id ? { ...s, ...patch } : s
     );
-    set({ slabs });
-    set({
-      ...rebuild(get, get().building, get().pillars, get().floorPlates),
-      selectedSlabId: id,
-    });
+    set({ slabs, selectedSlabId: id });
+    scheduleCommitStructure(get, set, { selectedSlabId: id });
   },
 
   updateWall: (id, patch) => {
@@ -946,10 +1002,8 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       ...p,
       walls: p.walls.map((w) => (w.id === id ? { ...w, ...patch } : w)),
     }));
-    set({
-      ...rebuild(get, get().building, get().pillars, floorPlates),
-      selectedWallId: id,
-    });
+    set({ floorPlates, selectedWallId: id });
+    scheduleCommitStructure(get, set, { selectedWallId: id });
   },
 
   updateStair: (id, patch) => {
@@ -1001,7 +1055,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       ...get().building,
       site: { ...defaultBuilding().site!, ...get().building.site, ...patch },
     };
-    set(rebuild(get, building, get().pillars, get().floorPlates));
+    commitStructure(get, set, building, get().pillars, get().floorPlates);
   },
 
   setDesign: (patch) => {
@@ -1014,7 +1068,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
         ...patch,
       },
     };
-    set(rebuild(get, building, get().pillars, get().floorPlates));
+    commitStructure(get, set, building, get().pillars, get().floorPlates);
   },
 
   setFoundation: (patch) => {
@@ -1027,7 +1081,21 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
         ...patch,
       },
     };
-    set(rebuild(get, building, get().pillars, get().floorPlates));
+    commitStructure(get, set, building, get().pillars, get().floorPlates);
+  },
+
+  setRoof: (patch) => {
+    get().pushHistory();
+    const prev = get().building.roof ?? defaultBuilding().roof!;
+    const next = { ...prev, ...patch };
+    const building = {
+      ...get().building,
+      roof: next,
+      roofType: next.type,
+    };
+    // Geometry-only for roof visuals/cost — still schedule estimate.
+    set({ building });
+    scheduleEstimate(get, set);
   },
 
   applyEngineeringRecommendation: (rec) => {
@@ -1039,9 +1107,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       building: get().building,
     });
     set({ pillars: next.pillars, beams: next.beams, slabs: next.slabs });
-    set(
-      rebuild(get, next.building, next.pillars, get().floorPlates)
-    );
+    commitStructure(get, set, next.building, next.pillars, get().floorPlates);
   },
 
   applyDesignOption: (opt) => {
@@ -1051,8 +1117,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       const pillars = get().pillars.map((p) =>
         p.id === opt.memberId ? ({ ...p, ...patch } as Pillar) : p
       );
-      set({
-        ...rebuild(get, get().building, pillars, get().floorPlates),
+      commitStructure(get, set, get().building, pillars, get().floorPlates, {
         selectedPillarId: opt.memberId,
       });
       return;
@@ -1062,8 +1127,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
         b.id === opt.memberId ? ({ ...b, ...patch } as Beam) : b
       );
       set({ beams });
-      set({
-        ...rebuild(get, get().building, get().pillars, get().floorPlates),
+      commitStructure(get, set, get().building, get().pillars, get().floorPlates, {
         selectedBeamId: opt.memberId,
       });
       return;
@@ -1073,8 +1137,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
         s.id === opt.memberId ? ({ ...s, ...patch } as Slab) : s
       );
       set({ slabs });
-      set({
-        ...rebuild(get, get().building, get().pillars, get().floorPlates),
+      commitStructure(get, set, get().building, get().pillars, get().floorPlates, {
         selectedSlabId: opt.memberId,
       });
       return;
@@ -1087,7 +1150,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
           ...(patch as Partial<FoundationConfig>),
         },
       };
-      set(rebuild(get, building, get().pillars, get().floorPlates));
+      commitStructure(get, set, building, get().pillars, get().floorPlates);
     }
   },
 
@@ -1120,7 +1183,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       set({ pillars });
       return;
     }
-    set(rebuild(get, building, pillars, get().floorPlates));
+    commitStructure(get, set, building, pillars, get().floorPlates);
   },
 
   moveWallBy: (id, dx, dy) => {
@@ -1162,7 +1225,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       set({ floorPlates });
       return;
     }
-    set(rebuild(get, building, get().pillars, floorPlates));
+    commitStructure(get, set, building, get().pillars, floorPlates);
   },
 
   moveStair: (id, x, y) => {
@@ -1178,7 +1241,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       set({ floorPlates });
       return;
     }
-    set(rebuild(get, building, get().pillars, floorPlates));
+    commitStructure(get, set, building, get().pillars, floorPlates);
   },
 
   nudgeSelected: (dx, dy) => {
@@ -1233,18 +1296,23 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       material: "concrete",
       loadCapacity: pillarLoadCapacity(0.4, 0.4, building.floorHeight),
     };
-    set({
-      ...rebuild(get, building, [...get().pillars, pillar], get().floorPlates),
-      selectedPillarId: pillar.id,
-      tool: "select",
-    });
+    commitStructure(
+      get,
+      set,
+      building,
+      [...get().pillars, pillar],
+      get().floorPlates,
+      {
+        selectedPillarId: pillar.id,
+        tool: "select",
+      }
+    );
   },
 
   removePillar: (id) => {
     get().pushHistory();
     const pillars = get().pillars.filter((p) => p.id !== id);
-    set({
-      ...rebuild(get, get().building, pillars, get().floorPlates),
+    commitStructure(get, set, get().building, pillars, get().floorPlates, {
       selectedPillarId:
         get().selectedPillarId === id ? null : get().selectedPillarId,
     });
@@ -1270,8 +1338,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     const floorPlates = get().floorPlates.map((p) =>
       p.floor === floor ? { ...p, walls: [...p.walls, wall] } : p
     );
-    set({
-      ...rebuild(get, building, get().pillars, floorPlates),
+    commitStructure(get, set, building, get().pillars, floorPlates, {
       selectedWallId: wall.id,
       wallDraftStart: null,
       tool: "select",
@@ -1287,8 +1354,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       walls: p.walls.filter((w) => w.id !== id),
       openings: p.openings.filter((o) => o.wallId !== id),
     }));
-    set({
-      ...rebuild(get, get().building, get().pillars, floorPlates),
+    commitStructure(get, set, get().building, get().pillars, floorPlates, {
       selectedWallId: get().selectedWallId === id ? null : get().selectedWallId,
     });
   },
@@ -1310,8 +1376,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     const floorPlates = get().floorPlates.map((p) =>
       p.floor === floor ? { ...p, openings: [...p.openings, opening] } : p
     );
-    set({
-      ...rebuild(get, get().building, get().pillars, floorPlates),
+    commitStructure(get, set, get().building, get().pillars, floorPlates, {
       selectedOpeningId: opening.id,
       tool: "select",
     });
@@ -1323,8 +1388,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       ...p,
       openings: p.openings.filter((o) => o.id !== id),
     }));
-    set({
-      ...rebuild(get, get().building, get().pillars, floorPlates),
+    commitStructure(get, set, get().building, get().pillars, floorPlates, {
       selectedOpeningId:
         get().selectedOpeningId === id ? null : get().selectedOpeningId,
     });
@@ -1358,8 +1422,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     const floorPlates = get().floorPlates.map((p) =>
       p.floor === floor ? { ...p, stairs: [...p.stairs, stair] } : p
     );
-    set({
-      ...rebuild(get, building, get().pillars, floorPlates),
+    commitStructure(get, set, building, get().pillars, floorPlates, {
       selectedStairId: stair.id,
       tool: "select",
     });
@@ -1371,8 +1434,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       ...p,
       stairs: p.stairs.filter((s) => s.id !== id),
     }));
-    set({
-      ...rebuild(get, get().building, get().pillars, floorPlates),
+    commitStructure(get, set, get().building, get().pillars, floorPlates, {
       selectedStairId:
         get().selectedStairId === id ? null : get().selectedStairId,
     });
@@ -1433,8 +1495,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       suggestion.pillarWidth,
       suggestion.pillarDepth
     );
-    set({
-      ...rebuild(get, building, pillars, get().floorPlates),
+    commitStructure(get, set, building, pillars, get().floorPlates, {
       selectedPillarId: pillars[0]?.id ?? null,
     });
   },
@@ -1446,8 +1507,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     get().pushHistory();
     const building = get().building;
     const pillars = generatePillarGrid(building, cols, rows, size, size);
-    set({
-      ...rebuild(get, building, pillars, get().floorPlates),
+    commitStructure(get, set, building, pillars, get().floorPlates, {
       selectedPillarId: pillars[0]?.id ?? null,
     });
   },
