@@ -17,6 +17,8 @@ import LeftSidebar from "@/components/panels/LeftSidebar";
 import RightCostPanel from "@/components/panels/RightCostPanel";
 import GuidedActionBar from "@/components/planner/GuidedActionBar";
 import PropertyInspector from "@/components/planner/PropertyInspector";
+import SceneTree from "@/components/planner/SceneTree";
+import StatusBar from "@/components/planner/StatusBar";
 import ToolBar from "@/components/planner/ToolBar";
 import { useIsCompact, useIsMobile } from "@/hooks/useMediaQuery";
 import { formatCurrency } from "@/lib/cost-estimator";
@@ -55,6 +57,8 @@ export default function PlannerShell({
   const rightOpen = useStructureStore((s) => s.rightOpen);
   const setLeftOpen = useStructureStore((s) => s.setLeftOpen);
   const setRightOpen = useStructureStore((s) => s.setRightOpen);
+  const inspectorOpen = useStructureStore((s) => s.inspectorOpen);
+  const setInspectorOpen = useStructureStore((s) => s.setInspectorOpen);
   const undo = useStructureStore((s) => s.undo);
   const redo = useStructureStore((s) => s.redo);
   const nudgeSelected = useStructureStore((s) => s.nudgeSelected);
@@ -74,14 +78,13 @@ export default function PlannerShell({
     if (!hydrated) initDemo();
   }, [hydrated, initDemo]);
 
-  // Default to canvas-first on tablets/phones
+  // Default to canvas-first on tablets/phones; keep cost panel closed on desktop too
   useEffect(() => {
     if (compact) {
       setLeftOpen(false);
       setRightOpen(false);
     } else {
       setLeftOpen(true);
-      setRightOpen(true);
     }
   }, [compact, setLeftOpen, setRightOpen]);
 
@@ -101,6 +104,7 @@ export default function PlannerShell({
         if (compact) {
           setLeftOpen(false);
           setRightOpen(false);
+          setInspectorOpen(false);
         }
       }
       const target = e.target as HTMLElement | null;
@@ -109,6 +113,26 @@ export default function PlannerShell({
         return;
       }
       const mod = e.ctrlKey || e.metaKey;
+      if (!mod && (e.key === "f" || e.key === "F")) {
+        e.preventDefault();
+        useStructureStore.getState().requestFocusSelection();
+      } else if (!mod && (e.key === "i" || e.key === "I")) {
+        e.preventDefault();
+        const vf = useStructureStore.getState().viewFlags;
+        useStructureStore
+          .getState()
+          .setViewFlags({ isolateSelection: !vf.isolateSelection });
+      } else if (!mod && (e.key === "g" || e.key === "G")) {
+        e.preventDefault();
+        const vf = useStructureStore.getState().viewFlags;
+        const next =
+          vf.gizmoMode === "off"
+            ? "translate"
+            : vf.gizmoMode === "translate"
+              ? "rotate"
+              : "off";
+        useStructureStore.getState().setViewFlags({ gizmoMode: next });
+      }
       if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -351,17 +375,49 @@ export default function PlannerShell({
 
       <div className="relative flex min-h-0 flex-1">
         <LeftSidebar />
-        <main className={cn("relative min-w-0 flex-1", mobile && "pb-28")}>
-          <ToolBar />
-          <StructureCanvas />
-          <GuidedActionBar />
-          <PropertyInspector />
-          {compact && (
-            <div className="pointer-events-none absolute left-3 top-[7.5rem] z-20 rounded-full bg-[#121820]/80 px-3 py-1 text-[11px] font-medium text-white backdrop-blur md:hidden">
-              {formatCurrency(estimate.totalCost)}
-            </div>
-          )}
+        <main className={cn("relative flex min-w-0 flex-1 flex-col", mobile && "pb-28")}>
+          <div className="relative min-h-0 flex-1">
+            <ToolBar />
+            <StructureCanvas />
+            <GuidedActionBar />
+            {compact && (
+              <div className="pointer-events-none absolute left-3 top-[7.5rem] z-20 rounded-full bg-[#121820]/80 px-3 py-1 text-[11px] font-medium text-white backdrop-blur md:hidden">
+                {formatCurrency(estimate.totalCost)}
+              </div>
+            )}
+          </div>
+          <StatusBar />
         </main>
+
+        {/* Docked Revit-style inspector — not a floating popup */}
+        {inspectorOpen && (
+          <aside
+            className={cn(
+              "z-30 flex w-[min(100%,360px)] shrink-0 flex-col border-l border-[#e2e8f0] bg-white",
+              compact &&
+                "absolute inset-y-0 right-0 shadow-2xl"
+            )}
+            aria-label="Property inspector"
+          >
+            <div className="flex items-center justify-between border-b border-[#eef2f6] px-3 py-2">
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#2563EB]">
+                Inspector
+              </p>
+              <button
+                type="button"
+                onClick={() => setInspectorOpen(false)}
+                className="rounded-lg px-2 py-1 text-[11px] font-medium text-[#94a3b8] hover:bg-[#f8fafc] hover:text-[#121820]"
+              >
+                Hide
+              </button>
+            </div>
+            <SceneTree />
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <PropertyInspector variant="docked" />
+            </div>
+          </aside>
+        )}
+
         <RightCostPanel />
       </div>
     </div>
