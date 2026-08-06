@@ -199,6 +199,7 @@ export default function PlannerShell({
     setWallDraftStart,
     clearSelection,
     clearMultiSelect,
+    setInspectorOpen,
   ]);
 
   const payload = {
