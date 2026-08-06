@@ -4,17 +4,21 @@ import type { ReactNode } from "react";
 import {
   BrickWall,
   ChevronDown,
+  Crosshair,
   DoorOpen,
   Eraser,
   Eye,
+  Focus,
   Footprints,
   Grid3X3,
   Layers,
   MousePointer2,
+  Move3D,
   PanelTop,
   PersonStanding,
   Plus,
   Redo2,
+  RotateCw,
   SquareStack,
   Undo2,
 } from "lucide-react";
@@ -88,6 +92,7 @@ export default function ToolBar() {
   const setCutaway = useStructureStore((s) => s.setCutaway);
   const viewFlags = useStructureStore((s) => s.viewFlags);
   const setViewFlags = useStructureStore((s) => s.setViewFlags);
+  const requestFocusSelection = useStructureStore((s) => s.requestFocusSelection);
   const setInspectorOpen = useStructureStore((s) => s.setInspectorOpen);
   const undo = useStructureStore((s) => s.undo);
   const redo = useStructureStore((s) => s.redo);
@@ -209,6 +214,54 @@ export default function ToolBar() {
         <PersonStanding size={14} />,
         "Walk inside (WASD)"
       )}
+      {chip(
+        false,
+        () => requestFocusSelection(),
+        "Focus",
+        <Focus size={14} />,
+        "Frame camera on selection (F)"
+      )}
+      {chip(
+        viewFlags.isolateSelection,
+        () =>
+          setViewFlags({ isolateSelection: !viewFlags.isolateSelection }),
+        "Isolate",
+        <Crosshair size={14} />,
+        "Dim everything except selection (I)"
+      )}
+      {chip(
+        viewFlags.exploded,
+        () => setViewFlags({ exploded: !viewFlags.exploded }),
+        "Explode",
+        <Layers size={14} />,
+        "Separate floors in 3D"
+      )}
+    </div>
+  );
+
+  const gizmo = (
+    <div className="flex items-center gap-0.5 rounded-xl bg-[#f8fafc] p-0.5">
+      {chip(
+        viewFlags.gizmoMode === "translate",
+        () =>
+          setViewFlags({
+            gizmoMode:
+              viewFlags.gizmoMode === "translate" ? "off" : "translate",
+          }),
+        "Move",
+        <Move3D size={14} />,
+        "3D move gizmo (G)"
+      )}
+      {chip(
+        viewFlags.gizmoMode === "rotate",
+        () =>
+          setViewFlags({
+            gizmoMode: viewFlags.gizmoMode === "rotate" ? "off" : "rotate",
+          }),
+        "Rot",
+        <RotateCw size={14} />,
+        "3D rotate gizmo"
+      )}
     </div>
   );
 
@@ -326,6 +379,7 @@ export default function ToolBar() {
           <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#e2e8f0] bg-white/95 px-2 py-1.5 shadow-lg backdrop-blur">
             {history}
             {view}
+            {gizmo}
             {floors}
           </div>
           <div className="overflow-x-auto rounded-2xl border border-[#e2e8f0] bg-white/95 p-1.5 shadow-lg backdrop-blur">
@@ -345,6 +399,8 @@ export default function ToolBar() {
       </div>
       <div className="flex items-center gap-1 rounded-2xl border border-[#e2e8f0] bg-white/95 p-1.5 shadow-lg backdrop-blur">
         {view}
+        <span className="mx-1 h-8 w-px bg-[#e2e8f0]" />
+        {gizmo}
         <span className="mx-1 h-8 w-px bg-[#e2e8f0]" />
         {floors}
         <span className="mx-1 h-8 w-px bg-[#e2e8f0]" />
