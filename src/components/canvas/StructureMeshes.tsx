@@ -48,16 +48,21 @@ function projectToLocalXZ(
 }
 
 export function PillarMesh({
-  pillar,
+  pillarId,
   selected,
   baseY,
   totalHeight,
+  dimmed = false,
 }: {
-  pillar: Pillar;
+  pillarId: string;
   selected: boolean;
   baseY: number;
   totalHeight: number;
+  dimmed?: boolean;
 }) {
+  const pillar = useStructureStore((s) =>
+    s.pillars.find((p) => p.id === pillarId)
+  );
   const movePillar = useStructureStore((s) => s.movePillar);
   const selectPillar = useStructureStore((s) => s.selectPillar);
   const setDragging = useStructureStore((s) => s.setDragging);
@@ -73,7 +78,7 @@ export function PillarMesh({
     (s) => s.multiSelectedPillarIds
   );
   const pushHistory = useStructureStore((s) => s.pushHistory);
-  const inGroup = multiSelectedPillarIds.includes(pillar.id);
+  const inGroup = multiSelectedPillarIds.includes(pillarId);
   const wireframe = viewFlags.wireframe;
   const showLabels = viewFlags.showLabels;
   const showDimensions = viewFlags.showDimensions;
@@ -86,16 +91,17 @@ export function PillarMesh({
   const draggingRef = useRef(false);
 
   const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
+    if (!pillar) return;
     e.stopPropagation();
     // Prevent OrbitControls from stealing the gesture on this frame.
     e.nativeEvent?.preventDefault?.();
     if (tool === "delete") {
-      handleCanvasClick(pillar.x, pillar.y, { kind: "pillar", id: pillar.id });
+      handleCanvasClick(pillar.x, pillar.y, { kind: "pillar", id: pillarId });
       return;
     }
     if (tool !== "select") return;
     if (e.ctrlKey || e.metaKey) {
-      toggleMultiSelectPillar(pillar.id);
+      toggleMultiSelectPillar(pillarId);
       return;
     }
     const hit = projectToLocalXZ(e, baseY, building);
@@ -105,7 +111,7 @@ export function PillarMesh({
       pushHistory();
     } else {
       groupDrag.current = false;
-      selectPillar(pillar.id);
+      selectPillar(pillarId);
     }
     draggingRef.current = true;
     setLocalDrag(true);
@@ -160,7 +166,7 @@ export function PillarMesh({
       const snap = viewFlags.snapToGrid ? viewFlags.gridSizeM : 0;
       const sx = snap > 0 ? Math.round(x / snap) * snap : x;
       const sy = snap > 0 ? Math.round(y / snap) * snap : y;
-      movePillar(pillar.id, sx, sy);
+      movePillar(pillarId, sx, sy);
     };
     const onUp = () => endDrag();
     window.addEventListener("pointermove", onMove, { passive: true });
@@ -172,7 +178,9 @@ export function PillarMesh({
       window.removeEventListener("pointercancel", onUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dragging, pillar.id, baseY, building, camera, gl.domElement]);
+  }, [dragging, pillarId, baseY, building, camera, gl.domElement]);
+
+  if (!pillar) return null;
 
   const highlighted = selected || dragging;
   const color = inGroup ? PILLAR_GROUP : highlighted ? PILLAR_SEL : PILLAR;
@@ -213,8 +221,13 @@ export function PillarMesh({
           roughness={0.55}
           metalness={0.08}
           wireframe={wireframe}
+          transparent={dimmed}
+          opacity={dimmed ? 0.18 : 1}
+          depthWrite={!dimmed}
           emissive={inGroup ? "#f59e0b" : highlighted ? "#2563EB" : "#000000"}
-          emissiveIntensity={inGroup ? 0.35 : highlighted ? 0.25 : 0}
+          emissiveIntensity={
+            dimmed ? 0 : inGroup ? 0.35 : highlighted ? 0.25 : 0
+          }
         />
       </mesh>
       {(selected || inGroup) && (
@@ -297,10 +310,12 @@ export function BeamMesh({
   beam,
   floorBaseY,
   selected,
+  dimmed = false,
 }: {
   beam: Beam;
   floorBaseY: number;
   selected?: boolean;
+  dimmed?: boolean;
 }) {
   const selectBeam = useStructureStore((s) => s.selectBeam);
   const tool = useStructureStore((s) => s.tool);
@@ -349,8 +364,11 @@ export function BeamMesh({
           roughness={0.5}
           metalness={0.1}
           wireframe={wireframe}
+          transparent={dimmed}
+          opacity={dimmed ? 0.14 : 1}
+          depthWrite={!dimmed}
           emissive={inGroup ? "#f59e0b" : "#000000"}
-          emissiveIntensity={inGroup ? 0.3 : 0}
+          emissiveIntensity={dimmed ? 0 : inGroup ? 0.3 : 0}
         />
       </mesh>
       {(selected || inGroup || showLabels) && (
@@ -376,6 +394,7 @@ export function SlabMesh({
   floorHeight,
   active,
   hideCeiling,
+  dimmed = false,
 }: {
   slab: Slab;
   floorBaseY: number;
@@ -383,6 +402,7 @@ export function SlabMesh({
   active: boolean;
   /** When cutaway/inside, hide the ceiling slab so you can see the room. */
   hideCeiling?: boolean;
+  dimmed?: boolean;
 }) {
   const selectSlab = useStructureStore((s) => s.selectSlab);
   const tool = useStructureStore((s) => s.tool);
@@ -404,7 +424,7 @@ export function SlabMesh({
       <meshStandardMaterial
         color={SLAB}
         transparent
-        opacity={active ? 0.55 : 0.22}
+        opacity={dimmed ? 0.08 : active ? 0.55 : 0.22}
         roughness={0.7}
         depthWrite={false}
       />
@@ -417,11 +437,13 @@ export function WallMesh({
   floorBaseY,
   selected,
   active,
+  dimmed = false,
 }: {
   wall: Wall;
   floorBaseY: number;
   selected: boolean;
   active: boolean;
+  dimmed?: boolean;
 }) {
   const handleCanvasClick = useStructureStore((s) => s.handleCanvasClick);
   const selectWall = useStructureStore((s) => s.selectWall);
@@ -553,9 +575,9 @@ export function WallMesh({
         <meshStandardMaterial
           color={selected || dragging ? WALL_SEL : WALL}
           transparent
-          opacity={active ? 0.88 : 0.28}
+          opacity={dimmed ? 0.12 : active ? 0.88 : 0.28}
           roughness={0.85}
-          depthWrite={active}
+          depthWrite={active && !dimmed}
         />
       </mesh>
     </group>
@@ -653,12 +675,14 @@ export function StairMesh({
   floorHeight,
   active,
   selected,
+  dimmed = false,
 }: {
   stair: Stair;
   floorBaseY: number;
   floorHeight: number;
   active: boolean;
   selected?: boolean;
+  dimmed?: boolean;
 }) {
   const handleCanvasClick = useStructureStore((s) => s.handleCanvasClick);
   const selectStair = useStructureStore((s) => s.selectStair);
@@ -788,7 +812,8 @@ export function StairMesh({
             <meshStandardMaterial
               color={selected || dragging ? WALL_SEL : STAIR}
               transparent
-              opacity={active ? 1 : 0.4}
+              opacity={dimmed ? 0.12 : active ? 1 : 0.4}
+              depthWrite={!dimmed}
             />
           </mesh>
         );
@@ -810,6 +835,177 @@ export function StairMesh({
   );
 }
 
+const FOUNDATION = "#6b7280";
+const FOUNDATION_SEL = "#2563EB";
+const PEDESTAL = "#8b95a1";
+const ROOF_CONCRETE = "#c5ced8";
+const ROOF_METAL = "#94a3b8";
+const ROOF_TILE = "#b4534b";
+const PARAPET = "#9aa3ad";
+
+export function FoundationSystem({
+  selected = false,
+  dimmed = false,
+}: {
+  selected?: boolean;
+  dimmed?: boolean;
+}) {
+  const building = useStructureStore((s) => s.building);
+  const pillars = useStructureStore((s) => s.pillars);
+  const footing = building.foundation;
+  if (!footing) return null;
+
+  const level = footing.foundationLevel ?? -1.5;
+  const t = Math.max(footing.thickness, 0.25);
+  const fw = Math.max(footing.width, 0.8);
+  const fl = Math.max(footing.length, 0.8);
+  const pedH = Math.max(footing.pedestalHeight ?? 0.3, 0.05);
+  // Top of footing pad sits at `level`; pedestal rises toward ground (y=0).
+  const padCenterY = level - t / 2;
+  const type = footing.type ?? "isolated";
+  const color = selected ? FOUNDATION_SEL : FOUNDATION;
+  const opacity = dimmed ? 0.15 : 1;
+
+  if (type === "raft") {
+    const matW = building.width + 1.2;
+    const matL = building.length + 1.2;
+    return (
+      <group>
+        <mesh
+          position={[building.width / 2, padCenterY, building.length / 2]}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[matW, t, matL]} />
+          <meshStandardMaterial
+            color={color}
+            roughness={0.95}
+            transparent={dimmed}
+            opacity={opacity}
+            depthWrite={!dimmed}
+          />
+        </mesh>
+      </group>
+    );
+  }
+
+  if (type === "strip") {
+    // Strip footings along unique column rows (Y) and columns (X).
+    const tol = 0.4;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const p of pillars) {
+      if (!xs.some((v) => Math.abs(v - p.x) < tol)) xs.push(p.x);
+      if (!ys.some((v) => Math.abs(v - p.y) < tol)) ys.push(p.y);
+    }
+    const stripW = Math.min(fw, fl);
+    return (
+      <group>
+        {ys.map((y) => (
+          <mesh
+            key={`sy-${y.toFixed(2)}`}
+            position={[building.width / 2, padCenterY, y]}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[building.width + 0.6, t, stripW]} />
+            <meshStandardMaterial
+              color={color}
+              roughness={0.95}
+              transparent={dimmed}
+              opacity={opacity}
+              depthWrite={!dimmed}
+            />
+          </mesh>
+        ))}
+        {xs.map((x) => (
+          <mesh
+            key={`sx-${x.toFixed(2)}`}
+            position={[x, padCenterY, building.length / 2]}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[stripW, t, building.length + 0.6]} />
+            <meshStandardMaterial
+              color={color}
+              roughness={0.95}
+              transparent={dimmed}
+              opacity={opacity * 0.85}
+              depthWrite={!dimmed}
+            />
+          </mesh>
+        ))}
+      </group>
+    );
+  }
+
+  // isolated | combined | pile — pad under each column (+ piles for pile type)
+  return (
+    <group>
+      {pillars.map((p) => {
+        const padW = type === "combined" ? fw * 1.15 : fw;
+        const padL = type === "combined" ? fl * 1.15 : fl;
+        const pedW = Math.max(p.width + 0.1, 0.35);
+        const pedD = Math.max(p.depth + 0.1, 0.35);
+        const pedTop = Math.min(0, level + pedH);
+        const pedCenterY = (level + pedTop) / 2;
+        const pedHeight = Math.max(pedTop - level, 0.05);
+        return (
+          <group key={p.id}>
+            <mesh
+              position={[p.x, padCenterY, p.y]}
+              castShadow
+              receiveShadow
+            >
+              <boxGeometry args={[padW, t, padL]} />
+              <meshStandardMaterial
+                color={color}
+                roughness={0.95}
+                transparent={dimmed}
+                opacity={opacity}
+                depthWrite={!dimmed}
+              />
+            </mesh>
+            <mesh position={[p.x, pedCenterY, p.y]} castShadow>
+              <boxGeometry args={[pedW, pedHeight, pedD]} />
+              <meshStandardMaterial
+                color={selected ? FOUNDATION_SEL : PEDESTAL}
+                roughness={0.9}
+                transparent={dimmed}
+                opacity={opacity}
+                depthWrite={!dimmed}
+              />
+            </mesh>
+            {type === "pile" &&
+              [
+                [-padW * 0.28, -padL * 0.28],
+                [padW * 0.28, -padL * 0.28],
+                [-padW * 0.28, padL * 0.28],
+                [padW * 0.28, padL * 0.28],
+              ].map(([dx, dy], i) => (
+                <mesh
+                  key={i}
+                  position={[p.x + dx, level - t - 1.2, p.y + dy]}
+                  castShadow
+                >
+                  <cylinderGeometry args={[0.15, 0.15, 2.4, 10]} />
+                  <meshStandardMaterial
+                    color="#57534e"
+                    roughness={0.98}
+                    transparent={dimmed}
+                    opacity={opacity}
+                    depthWrite={!dimmed}
+                  />
+                </mesh>
+              ))}
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+/** @deprecated use FoundationSystem */
 export function Foundation({
   width,
   length,
@@ -822,6 +1018,127 @@ export function Foundation({
       <boxGeometry args={[width + 0.8, 0.5, length + 0.8]} />
       <meshStandardMaterial color="#6b7280" roughness={0.95} />
     </mesh>
+  );
+}
+
+export function RoofMesh({
+  explodeGap = 0,
+  dimmed = false,
+}: {
+  explodeGap?: number;
+  dimmed?: boolean;
+}) {
+  const building = useStructureStore((s) => s.building);
+  const roof =
+    building.roof ??
+    ({
+      type: building.roofType ?? "flat",
+      overhangM: 0.45,
+      thickness: 0.15,
+      slopeDeg: 25,
+      material: "concrete",
+      parapetHeight: 0.6,
+    } as const);
+
+  const topY =
+    building.floors * building.floorHeight +
+    explodeGap * Math.max(building.floors - 1, 0);
+  const oh = Math.max(roof.overhangM ?? 0, 0);
+  const thick = Math.max(roof.thickness ?? 0.12, 0.08);
+  const w = building.width + oh * 2;
+  const l = building.length + oh * 2;
+  const cx = building.width / 2;
+  const cz = building.length / 2;
+  const color =
+    roof.material === "metal"
+      ? ROOF_METAL
+      : roof.material === "tile"
+        ? ROOF_TILE
+        : ROOF_CONCRETE;
+  const opacity = dimmed ? 0.12 : roof.material === "metal" ? 0.92 : 0.96;
+
+  if (roof.type === "flat") {
+    const parapet = Math.max(roof.parapetHeight ?? 0, 0);
+    return (
+      <group>
+        <mesh position={[cx, topY + thick / 2, cz]} castShadow receiveShadow>
+          <boxGeometry args={[w, thick, l]} />
+          <meshStandardMaterial
+            color={color}
+            roughness={0.75}
+            metalness={roof.material === "metal" ? 0.35 : 0.05}
+            transparent={dimmed || roof.material !== "concrete"}
+            opacity={opacity}
+            depthWrite={!dimmed}
+          />
+        </mesh>
+        {parapet > 0.05 &&
+          (
+            [
+              [cx, topY + thick + parapet / 2, -oh + 0.08, w, 0.16],
+              [cx, topY + thick + parapet / 2, building.length + oh - 0.08, w, 0.16],
+              [-oh + 0.08, topY + thick + parapet / 2, cz, 0.16, l],
+              [building.width + oh - 0.08, topY + thick + parapet / 2, cz, 0.16, l],
+            ] as const
+          ).map(([x, y, z, bw, bd], i) => (
+            <mesh key={i} position={[x, y, z]} castShadow>
+              <boxGeometry args={[bw, parapet, bd]} />
+              <meshStandardMaterial
+                color={PARAPET}
+                roughness={0.9}
+                transparent={dimmed}
+                opacity={dimmed ? 0.12 : 0.95}
+                depthWrite={!dimmed}
+              />
+            </mesh>
+          ))}
+      </group>
+    );
+  }
+
+  // slope / gable — two pitched planes meeting at ridge along length
+  const pitch = ((roof.slopeDeg ?? 25) * Math.PI) / 180;
+  const rise = Math.tan(pitch) * (w / 2);
+  const panelW = Math.hypot(w / 2, rise);
+  const tilt = Math.atan2(rise, w / 2);
+
+  return (
+    <group>
+      <mesh
+        position={[cx - w / 4, topY + rise / 2 + thick / 2, cz]}
+        rotation={[0, 0, tilt]}
+        castShadow
+        receiveShadow
+      >
+        <boxGeometry args={[panelW, thick, l]} />
+        <meshStandardMaterial
+          color={color}
+          roughness={roof.material === "tile" ? 0.85 : 0.55}
+          metalness={roof.material === "metal" ? 0.4 : 0.05}
+          transparent={dimmed}
+          opacity={opacity}
+          depthWrite={!dimmed}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh
+        position={[cx + w / 4, topY + rise / 2 + thick / 2, cz]}
+        rotation={[0, 0, -tilt]}
+        castShadow
+        receiveShadow
+      >
+        <boxGeometry args={[panelW, thick, l]} />
+        <meshStandardMaterial
+          color={color}
+          roughness={roof.material === "tile" ? 0.85 : 0.55}
+          metalness={roof.material === "metal" ? 0.4 : 0.05}
+          transparent={dimmed}
+          opacity={opacity}
+          depthWrite={!dimmed}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
   );
 }
 
