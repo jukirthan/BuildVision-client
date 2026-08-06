@@ -46,20 +46,31 @@ export default function SelectionGizmo({
   const [ready, setReady] = useState(false);
   const draggingRef = useRef(false);
 
-  const target = pillar
-    ? ({ kind: "pillar" as const, id: pillar.id, x: pillar.x, y: pillar.y, rot: pillar.rotationDeg ?? 0, elev: pillarHeight / 2 })
-    : stair
-      ? ({
-          kind: "stair" as const,
-          id: stair.id,
-          x: stair.x,
-          y: stair.y,
-          rot: stair.rotationDeg ?? 0,
-          elev:
-            (stair.floor - 1) * building.floorHeight +
-            building.floorHeight * 0.35,
-        })
-      : null;
+  const target = useMemo(() => {
+    if (pillar) {
+      return {
+        kind: "pillar" as const,
+        id: pillar.id,
+        x: pillar.x,
+        y: pillar.y,
+        rot: pillar.rotationDeg ?? 0,
+        elev: pillarHeight / 2,
+      };
+    }
+    if (stair) {
+      return {
+        kind: "stair" as const,
+        id: stair.id,
+        x: stair.x,
+        y: stair.y,
+        rot: stair.rotationDeg ?? 0,
+        elev:
+          (stair.floor - 1) * building.floorHeight +
+          building.floorHeight * 0.35,
+      };
+    }
+    return null;
+  }, [pillar, stair, pillarHeight, building.floorHeight]);
 
   const mode =
     gizmoMode === "rotate"
@@ -70,7 +81,7 @@ export default function SelectionGizmo({
 
   useLayoutEffect(() => {
     setReady(Boolean(proxyRef.current));
-  }, [target?.id, mode]);
+  }, [target, mode]);
 
   // Keep proxy aligned with store while not dragging the gizmo.
   useLayoutEffect(() => {
