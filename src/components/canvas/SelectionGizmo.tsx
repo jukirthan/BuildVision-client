@@ -2,7 +2,7 @@
 
 import { TransformControls } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { useStructureStore } from "@/store/useStructureStore";
 
