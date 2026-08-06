@@ -2,16 +2,21 @@
 
 import { ContactShadows, Grid, OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { Suspense, useEffect, useMemo } from "react";
+import { Suspense, useEffect, useMemo, useRef } from "react";
+import * as THREE from "three";
+import { useShallow } from "zustand/react/shallow";
 import InsideControls from "@/components/canvas/InsideControls";
+import FocusSelectionCamera from "@/components/canvas/FocusSelectionCamera";
 import PillarDistanceDimensions from "@/components/canvas/PillarDistanceDimensions";
+import SelectionGizmo from "@/components/canvas/SelectionGizmo";
 import {
   ActiveFloorPlane,
   BeamMesh,
   Footprint,
-  Foundation,
+  FoundationSystem,
   OpeningMesh,
   PillarMesh,
+  RoofMesh,
   SlabMesh,
   StairMesh,
   WallDraftPreview,
@@ -27,6 +32,62 @@ function ExportBridge() {
     registerExportScene({ gl, scene, camera });
     return () => registerExportScene(null);
   }, [gl, scene, camera]);
+  return null;
+}
+
+function InitOrbitTarget() {
+  const building = useStructureStore((s) => s.building);
+  const activeFloor = useStructureStore((s) => s.activeFloor);
+  const { controls, invalidate } = useThree();
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current) return;
+    const orbit = controls as {
+      target: THREE.Vector3;
+      update?: () => void;
+    } | null;
+    if (!orbit?.target) return;
+    orbit.target.set(
+      building.width / 2,
+      (activeFloor - 1) * building.floorHeight + building.floorHeight * 0.45,
+      building.length / 2
+    );
+    orbit.update?.();
+    seeded.current = true;
+    invalidate();
+  }, [controls, building, activeFloor, invalidate]);
+  return null;
+}
+
+/** Demand-loop: only redraw when store geometry / view state changes. */
+function InvalidateOnChange() {
+  const invalidate = useThree((s) => s.invalidate);
+  const revision = useStructureStore(
+    useShallow((s) => [
+      s.pillars,
+      s.beams,
+      s.slabs,
+      s.floorPlates,
+      s.building,
+      s.activeFloor,
+      s.selectedPillarId,
+      s.selectedBeamId,
+      s.selectedWallId,
+      s.selectedStairId,
+      s.selectedOpeningId,
+      s.multiSelectedPillarIds,
+      s.viewFlags,
+      s.viewMode,
+      s.cutaway,
+      s.isDragging,
+      s.wallDraftStart,
+      s.tool,
+      s.focusToken,
+    ])
+  );
+  useEffect(() => {
+    invalidate();
+  }, [revision, invalidate]);
   return null;
 }
 
@@ -60,7 +121,9 @@ function WorkspaceHelpers({
 function BuildingScene() {
   const mobile = useIsMobile();
   const building = useStructureStore((s) => s.building);
-  const pillars = useStructureStore((s) => s.pillars);
+  const pillarIds = useStructureStore(
+    useShallow((s) => s.pillars.map((p) => p.id))
+  );
   const beams = useStructureStore((s) => s.beams);
   const slabs = useStructureStore((s) => s.slabs);
   const floorPlates = useStructureStore((s) => s.floorPlates);
@@ -84,6 +147,18 @@ function BuildingScene() {
   const inside = viewMode === "inside";
   const explodeGap = viewFlags.exploded ? building.floorHeight * 0.55 : 0;
   const rotY = ((building.rotationDeg ?? 0) * Math.PI) / 180;
+  const isolate = viewFlags.isolateSelection;
+  const hasSelection = Boolean(
+    selectedPillarId ||
+      selectedWallId ||
+      selectedStairId ||
+      selectedBeamId ||
+      selectedOpeningId
+  );
+  const pillarTotalHeight =
+    cutaway || inside
+      ? Math.max(activeBaseY + building.floorHeight, 0.5)
+      : totalHeight + explodeGap * Math.max(building.floors - 1, 0);
 
   const floorsToShow = useMemo(() => {
     if (cutaway || inside) {
@@ -115,10 +190,12 @@ function BuildingScene() {
         castShadow={!mobile}
         position={[22, 34, 16]}
         intensity={inside ? 0.75 : 1.0}
-        shadow-mapSize={mobile ? [1024, 1024] : [2048, 2048]}
+        shadow-mapSize={mobile ? [512, 512] : [1024, 1024]}
       />
       <hemisphereLight args={["#c7d2e0", "#1a1d22", inside ? 0.55 : 0.4]} />
       <ExportBridge />
+      <InitOrbitTarget />
+      <InvalidateOnChange />
 
       <group
         onPointerMissed={() => {
@@ -133,20 +210,29 @@ function BuildingScene() {
           <Footprint width={building.width} length={building.length} />
           <ActiveFloorPlane />
           {building.showFoundation && (
-            <Foundation width={building.width} length={building.length} />
+            <FoundationSystem
+              dimmed={isolate && hasSelection}
+            />
+          )}
+          {building.showRoof !== false && !cutaway && !inside && (
+            <RoofMesh
+              explodeGap={explodeGap}
+              dimmed={isolate && hasSelection}
+            />
           )}
 
-          {pillars.map((pillar) => (
+          {pillarIds.map((id) => (
             <PillarMesh
-              key={pillar.id}
-              pillar={pillar}
-              selected={pillar.id === selectedPillarId}
-              baseY={0}
-              totalHeight={
-                cutaway || inside
-                  ? Math.max(activeBaseY + building.floorHeight, 0.5)
-                  : totalHeight + explodeGap * Math.max(building.floors - 1, 0)
+              key={id}
+              pillarId={id}
+              selected={id === selectedPillarId}
+              dimmed={
+                isolate &&
+                hasSelection &&
+                id !== selectedPillarId
               }
+              baseY={0}
+              totalHeight={pillarTotalHeight}
             />
           ))}
 
@@ -167,6 +253,7 @@ function BuildingScene() {
                     floorHeight={building.floorHeight}
                     active={active}
                     hideCeiling={hideCeiling}
+                    dimmed={isolate && hasSelection}
                   />
                 ))}
                 {beams.map((beam) => (
@@ -175,6 +262,11 @@ function BuildingScene() {
                     beam={beam}
                     floorBaseY={baseY}
                     selected={beam.id === selectedBeamId}
+                    dimmed={
+                      isolate &&
+                      hasSelection &&
+                      beam.id !== selectedBeamId
+                    }
                   />
                 ))}
                 {plate?.walls.map((wall) => (
@@ -184,11 +276,23 @@ function BuildingScene() {
                     floorBaseY={baseY}
                     selected={wall.id === selectedWallId}
                     active={active}
+                    dimmed={
+                      isolate &&
+                      hasSelection &&
+                      wall.id !== selectedWallId
+                    }
                   />
                 ))}
                 {plate?.openings.map((opening) => {
                   const wall = wallMap.get(opening.wallId);
                   if (!wall) return null;
+                  if (
+                    isolate &&
+                    hasSelection &&
+                    opening.id !== selectedOpeningId
+                  ) {
+                    return null;
+                  }
                   return (
                     <OpeningMesh
                       key={opening.id}
@@ -208,6 +312,11 @@ function BuildingScene() {
                     floorHeight={building.floorHeight}
                     active={active}
                     selected={stair.id === selectedStairId}
+                    dimmed={
+                      isolate &&
+                      hasSelection &&
+                      stair.id !== selectedStairId
+                    }
                   />
                 ))}
               </group>
@@ -216,8 +325,11 @@ function BuildingScene() {
 
           <WallDraftPreview />
           <PillarDistanceDimensions />
+          <SelectionGizmo pillarHeight={pillarTotalHeight} />
         </group>
       </group>
+
+      <FocusSelectionCamera pillarHeight={pillarTotalHeight} />
 
       {!mobile && !inside && (
         <ContactShadows
@@ -234,7 +346,6 @@ function BuildingScene() {
         <OrbitControls
           makeDefault
           enabled={!isDragging}
-          target={[cx, activeBaseY + building.floorHeight * 0.45, cz]}
           maxPolarAngle={Math.PI * 0.92}
           minDistance={cutaway ? 2.5 : 5}
           maxDistance={100}
@@ -275,8 +386,8 @@ export default function StructureCanvas() {
         ? `Group: ${groupCount} pillars selected · drag any one to move them together · Esc to clear`
         : tool === "select"
           ? mobile
-            ? "Tap to select · drag to move · Ctrl/⌘+click to group-select"
-            : `Orbit · pan · zoom · drag to move · Ctrl/⌘+click to group-select · ${dimHint}`
+            ? "Tap to select · drag / gizmo to move · Focus frames part"
+            : `Orbit · gizmo Move/Rot · F focus · I isolate · ${dimHint}`
           : tool === "pillar"
             ? "Tap / click on the floor to place a pillar"
             : tool === "wall"
@@ -292,10 +403,11 @@ export default function StructureCanvas() {
   return (
     <div className="relative h-full w-full" style={{ touchAction: "none" }}>
       <Canvas
+        frameloop="demand"
         shadows={!mobile}
         camera={{ position: [32, 26, 32], fov: 42, near: 0.1, far: 250 }}
-        dpr={mobile ? [1, 1.25] : [1, 1.75]}
-        gl={{ preserveDrawingBuffer: true }}
+        dpr={mobile ? [1, 1.25] : [1, 1.5]}
+        gl={{ preserveDrawingBuffer: true, powerPreference: "high-performance" }}
         style={{ touchAction: "none" }}
       >
         <Suspense
