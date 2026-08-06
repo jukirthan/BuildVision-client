@@ -8,7 +8,6 @@ import type {
   Beam,
   BuildingConfig,
   Opening,
-  Pillar,
   Slab,
   Stair,
   Wall,
