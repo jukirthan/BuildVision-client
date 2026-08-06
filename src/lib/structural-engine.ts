@@ -270,7 +270,16 @@ export function defaultBuilding(): BuildingConfig {
     floorHeight: 3.2,
     showFoundation: true,
     showAllFloors: true,
+    showRoof: true,
     roofType: "flat",
+    roof: {
+      type: "flat",
+      overhangM: 0.45,
+      thickness: 0.15,
+      slopeDeg: 25,
+      material: "concrete",
+      parapetHeight: 0.6,
+    },
     design: {
       concreteGrade: "M25",
       steelGrade: "Fe500",
