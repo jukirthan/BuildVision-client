@@ -41,7 +41,22 @@ export type FoundationType =
 
 export type SlabSystem = "one_way" | "two_way" | "flat" | "drop_panel";
 export type StairType = "dog_legged" | "straight" | "spiral";
-export type RoofType = "flat" | "slope";
+export type RoofType = "flat" | "slope" | "gable";
+
+export type RoofMaterial = "concrete" | "metal" | "tile";
+
+export interface RoofConfig {
+  type: RoofType;
+  /** Horizontal overhang beyond building footprint (m). */
+  overhangM: number;
+  /** Deck / slab thickness (m). */
+  thickness: number;
+  /** Pitch for slope/gable roofs (degrees). */
+  slopeDeg?: number;
+  material: RoofMaterial;
+  /** Parapet height for flat roofs (m). 0 = none. */
+  parapetHeight?: number;
+}
 
 export type SectionShape = "square" | "rectangle" | "circular";
 export type StirrupShape = "square" | "rectangular" | "circular";
@@ -303,10 +318,14 @@ export interface BuildingConfig {
   floorHeight: number;
   showFoundation: boolean;
   showAllFloors: boolean;
+  /** When false, hide roof mesh (Edit/cutaway still forces hide). */
+  showRoof?: boolean;
   site?: SiteConfig;
   design?: DesignCodes;
   foundation?: FoundationConfig;
+  /** @deprecated prefer `roof` — kept for older snapshots */
   roofType?: RoofType;
+  roof?: RoofConfig;
   rotationDeg?: number;
 }
 
@@ -429,4 +448,8 @@ export interface ViewFlags {
   sectionView: boolean;
   snapToGrid: boolean;
   gridSizeM: number;
+  /** Viewport transform gizmo for the selected member */
+  gizmoMode: "off" | "translate" | "rotate";
+  /** Dim non-selected members (Iron Man isolate) */
+  isolateSelection: boolean;
 }
