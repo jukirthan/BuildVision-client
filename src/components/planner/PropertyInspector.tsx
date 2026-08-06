@@ -221,7 +221,11 @@ function Stepper({
   );
 }
 
-export default function PropertyInspector() {
+export default function PropertyInspector({
+  variant = "docked",
+}: {
+  variant?: "docked" | "floating";
+}) {
   const [tab, setTab] = useState<Tab>("general");
   const inspectorOpen = useStructureStore((s) => s.inspectorOpen);
   const setInspectorOpen = useStructureStore((s) => s.setInspectorOpen);
@@ -253,6 +257,8 @@ export default function PropertyInspector() {
   const setSite = useStructureStore((s) => s.setSite);
   const setDesign = useStructureStore((s) => s.setDesign);
   const setFoundation = useStructureStore((s) => s.setFoundation);
+  const setRoof = useStructureStore((s) => s.setRoof);
+  const setBuilding = useStructureStore((s) => s.setBuilding);
   const applyEngineeringRecommendation = useStructureStore(
     (s) => s.applyEngineeringRecommendation
   );
@@ -318,11 +324,19 @@ export default function PropertyInspector() {
     [advisor, selectedPillarId, selectedBeamId, selectedSlabId]
   );
 
-  if (!inspectorOpen) return null;
+  const shell = (extra?: string) =>
+    cn(
+      variant === "docked"
+        ? "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white"
+        : "pointer-events-auto absolute right-3 top-20 z-40 rounded-2xl border border-[#e2e8f0] bg-white/95 shadow-xl backdrop-blur-xl md:right-4 md:top-24",
+      extra
+    );
+
+  if (variant === "floating" && !inspectorOpen) return null;
 
   if (groupCount > 0) {
     return (
-      <aside className="pointer-events-auto absolute right-3 top-20 z-40 w-[min(100%-1.5rem,340px)] rounded-2xl border border-[#e2e8f0] bg-white/95 p-4 shadow-xl backdrop-blur-xl md:right-4 md:top-24">
+      <aside className={shell(variant === "floating" ? "w-[min(100%-1.5rem,340px)] p-4" : "p-4")}>
         <div className="flex items-start justify-between gap-2">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#2563EB]">
@@ -332,14 +346,16 @@ export default function PropertyInspector() {
               {groupCount} pillars
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={() => setInspectorOpen(false)}
-            className="rounded-xl p-2 text-[#94a3b8] hover:bg-[#f1f5f9] hover:text-[#121820]"
-            aria-label="Close inspector"
-          >
-            <X size={16} />
-          </button>
+          {variant === "floating" && (
+            <button
+              type="button"
+              onClick={() => setInspectorOpen(false)}
+              className="rounded-xl p-2 text-[#94a3b8] hover:bg-[#f1f5f9] hover:text-[#121820]"
+              aria-label="Close inspector"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
         <p className="mt-2 text-xs leading-relaxed text-[#64748b]">
           Drag any orange pillar to move the group. Arrow keys nudge · Delete
@@ -351,7 +367,7 @@ export default function PropertyInspector() {
 
   if (!hasSelection) {
     return (
-      <aside className="pointer-events-auto absolute right-3 top-20 z-40 w-[min(100%-1.5rem,320px)] rounded-2xl border border-[#e2e8f0] bg-white/95 p-4 shadow-xl backdrop-blur-xl md:right-4 md:top-24">
+      <aside className={shell(variant === "floating" ? "w-[min(100%-1.5rem,320px)] p-4" : "p-4")}>
         <div className="flex items-start justify-between gap-2">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#2563EB]">
@@ -361,18 +377,20 @@ export default function PropertyInspector() {
               Nothing selected
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={() => setInspectorOpen(false)}
-            className="rounded-xl p-2 text-[#94a3b8] hover:bg-[#f1f5f9]"
-            aria-label="Close"
-          >
-            <X size={16} />
-          </button>
+          {variant === "floating" && (
+            <button
+              type="button"
+              onClick={() => setInspectorOpen(false)}
+              className="rounded-xl p-2 text-[#94a3b8] hover:bg-[#f1f5f9]"
+              aria-label="Close"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
         <p className="mt-2 text-xs leading-relaxed text-[#64748b]">
-          Click a pillar, wall, door, or stair in the 3D view to edit its size
-          and materials here.
+          Click a pillar, wall, door, or stair in the 3D view — or pick one from
+          the scene tree — to edit its size and materials here.
         </p>
         <ol className="mt-3 space-y-1.5 text-xs text-[#64748b]">
           <li>
@@ -385,8 +403,8 @@ export default function PropertyInspector() {
             floor (or wall) to place it
           </li>
           <li>
-            <span className="font-semibold text-[#2563EB]">3.</span> Click the
-            object again to edit details here
+            <span className="font-semibold text-[#2563EB]">3.</span> Edit live
+            properties in this inspector
           </li>
         </ol>
         <p className="mt-3 text-[11px] text-[#94a3b8]">
@@ -398,8 +416,13 @@ export default function PropertyInspector() {
   }
 
   return (
-    <aside className="pointer-events-auto absolute right-3 top-20 z-40 flex max-h-[min(70vh,720px)] w-[min(100%-1.5rem,380px)] flex-col overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white/95 shadow-xl backdrop-blur-xl md:right-4 md:top-24">
-      <div className="flex items-start justify-between gap-3 border-b border-[#eef2f6] px-4 py-3">
+    <aside
+      className={shell(
+        variant === "floating"
+          ? "flex max-h-[min(70vh,720px)] w-[min(100%-1.5rem,380px)] flex-col overflow-hidden"
+          : ""
+      )}
+    >      <div className="flex items-start justify-between gap-3 border-b border-[#eef2f6] px-4 py-3">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#2563EB]">
             {kind} properties
@@ -414,14 +437,16 @@ export default function PropertyInspector() {
             {building.design?.designCode ?? "IS456"} · live dependency engine
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setInspectorOpen(false)}
-          className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-          aria-label="Close inspector"
-        >
-          <X size={16} />
-        </button>
+        {variant === "floating" && (
+          <button
+            type="button"
+            onClick={() => setInspectorOpen(false)}
+            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close inspector"
+          >
+            <X size={16} />
+          </button>
+        )}
       </div>
 
       <div className="flex gap-1 overflow-x-auto border-b border-slate-100 px-2 py-2">
@@ -1898,6 +1923,110 @@ export default function PropertyInspector() {
                 format={(d) => `${d} mm`}
               />
             </Field>
+            <Field label="Pedestal height">
+              <NumInput
+                value={building.foundation?.pedestalHeight ?? 0.3}
+                step={0.05}
+                min={0.05}
+                max={1.2}
+                unit="m"
+                onChange={(pedestalHeight) => setFoundation({ pedestalHeight })}
+              />
+            </Field>
+            <Field label="Show foundation">
+              <SelectInput
+                value={building.showFoundation ? "on" : "off"}
+                options={["on", "off"] as const}
+                onChange={(v) => setBuilding({ showFoundation: v === "on" })}
+                format={(v) => (v === "on" ? "Visible" : "Hidden")}
+              />
+            </Field>
+
+            <p className="mt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-[#2563EB]">
+              Roof
+            </p>
+            <Field label="Roof type">
+              <SelectInput
+                value={
+                  (building.roof?.type ??
+                    building.roofType ??
+                    "flat") as "flat" | "slope" | "gable"
+                }
+                options={["flat", "slope", "gable"] as const}
+                onChange={(type) => setRoof({ type })}
+                format={(t) =>
+                  t === "flat"
+                    ? "Flat + parapet"
+                    : t === "gable"
+                      ? "Gable / pitch"
+                      : "Slope"
+                }
+              />
+            </Field>
+            <Field label="Material">
+              <SelectInput
+                value={
+                  (building.roof?.material ?? "concrete") as
+                    | "concrete"
+                    | "metal"
+                    | "tile"
+                }
+                options={["concrete", "metal", "tile"] as const}
+                onChange={(material) => setRoof({ material })}
+                format={(m) => m.charAt(0).toUpperCase() + m.slice(1)}
+              />
+            </Field>
+            <Field label="Overhang">
+              <NumInput
+                value={building.roof?.overhangM ?? 0.45}
+                step={0.05}
+                min={0}
+                max={2}
+                unit="m"
+                onChange={(overhangM) => setRoof({ overhangM })}
+              />
+            </Field>
+            <Field label="Deck thickness">
+              <NumInput
+                value={building.roof?.thickness ?? 0.15}
+                step={0.01}
+                min={0.08}
+                max={0.4}
+                unit="m"
+                onChange={(thickness) => setRoof({ thickness })}
+              />
+            </Field>
+            <Field label="Pitch">
+              <NumInput
+                value={building.roof?.slopeDeg ?? 25}
+                step={1}
+                min={5}
+                max={45}
+                unit="°"
+                onChange={(slopeDeg) => setRoof({ slopeDeg })}
+              />
+            </Field>
+            <Field label="Parapet height">
+              <NumInput
+                value={building.roof?.parapetHeight ?? 0.6}
+                step={0.05}
+                min={0}
+                max={1.5}
+                unit="m"
+                onChange={(parapetHeight) => setRoof({ parapetHeight })}
+              />
+            </Field>
+            <Field label="Show roof">
+              <SelectInput
+                value={building.showRoof === false ? "off" : "on"}
+                options={["on", "off"] as const}
+                onChange={(v) => setBuilding({ showRoof: v === "on" })}
+                format={(v) =>
+                  v === "on" ? "Visible (hidden in Edit)" : "Hidden"
+                }
+              />
+            </Field>
+
             <Field label="Soil bearing capacity">
               <NumInput
                 value={building.site?.bearingCapacityKNm2 ?? 200}
