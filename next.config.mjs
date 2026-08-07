@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
-const API_ORIGIN = process.env.API_PROXY_ORIGIN || "http://127.0.0.1:5055";
+const API_ORIGIN = (
+  process.env.API_PROXY_ORIGIN ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://127.0.0.1:5055"
+).replace(/\/$/, "");
 
 const nextConfig = {
   // Prevent Next's own trailing-slash normalization from redirecting

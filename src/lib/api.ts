@@ -1,5 +1,6 @@
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+// Always use the same-origin Next.js proxy. This avoids browser CORS failures
+// between a Vercel frontend and a Railway backend.
+const API_BASE = "";
 
 export type ApiResult<T> = {
   success: boolean;
