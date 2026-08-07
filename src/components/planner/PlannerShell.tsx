@@ -29,6 +29,7 @@ import {
 import { exportImage, exportJson, exportPdf } from "@/lib/export-report";
 import { cn } from "@/lib/utils";
 import { useStructureStore } from "@/store/useStructureStore";
+import type { SaveStatus } from "@/app/planner/page";
 
 const StructureCanvas = dynamic(() => import("@/components/canvas/Scene"), {
   ssr: false,
@@ -41,8 +42,10 @@ const StructureCanvas = dynamic(() => import("@/components/canvas/Scene"), {
 
 export default function PlannerShell({
   projectName = "Demo Structure",
+  saveStatus = "local",
 }: {
   projectName?: string;
+  saveStatus?: SaveStatus;
 }) {
   const initDemo = useStructureStore((s) => s.initDemo);
   const hydrated = useStructureStore((s) => s.hydrated);
@@ -287,6 +290,17 @@ export default function PlannerShell({
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           <div className="hidden rounded-full bg-[#fff1e8] px-3 py-1.5 text-xs font-medium text-[#3D5AFE] lg:block">
             Live · {formatCurrency(estimate.totalCost)}
+          </div>
+          <div className={cn(
+            "rounded-full px-2.5 py-1.5 text-xs font-semibold",
+            saveStatus === "saved" && "bg-emerald-50 text-emerald-700",
+            saveStatus === "saving" && "bg-blue-50 text-blue-700",
+            saveStatus === "offline" && "bg-amber-50 text-amber-700",
+            saveStatus === "failed" && "bg-rose-50 text-rose-700",
+            saveStatus === "local" && "bg-slate-100 text-slate-600"
+          )} role="status" aria-live="polite">
+            {saveStatus === "saving" ? "Saving…" : saveStatus === "saved" ? "Saved" :
+              saveStatus === "offline" ? "Offline" : saveStatus === "failed" ? "Save failed" : "Local only"}
           </div>
 
           {compact && (

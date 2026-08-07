@@ -56,6 +56,16 @@ type StructureSnapshot = {
   suggestions: LayoutSuggestion[];
 };
 
+export type PersistedDesign = {
+  schemaVersion: 1;
+  building: BuildingConfig;
+  activeFloor: number;
+  pillars: Pillar[];
+  beams: Beam[];
+  slabs: Slab[];
+  floorPlates: FloorPlate[];
+};
+
 interface StructureStore {
   building: BuildingConfig;
   activeFloor: number;
@@ -106,6 +116,7 @@ interface StructureStore {
     floors?: number;
     floorHeight?: number;
   }) => void;
+  hydrateFromDesign: (design: PersistedDesign) => void;
   pushHistory: () => void;
   undo: () => void;
   redo: () => void;
@@ -628,6 +639,44 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       selectedPillarId: pillars[0]?.id ?? null,
       activeFloor: 1,
       tool: "select",
+      hydrated: true,
+      past: [],
+      future: [],
+      wallDraftStart: null,
+    });
+  },
+
+  hydrateFromDesign: (design) => {
+    const building = structuredClone(design.building);
+    const pillars = structuredClone(design.pillars);
+    const beams = structuredClone(design.beams);
+    const slabs = structuredClone(design.slabs);
+    const floorPlates = structuredClone(design.floorPlates);
+    set({
+      building,
+      pillars,
+      beams,
+      slabs,
+      floorPlates,
+      activeFloor: Math.min(Math.max(design.activeFloor || 1, 1), building.floors),
+      estimate: estimateMaterials(
+        pillars,
+        beams,
+        slabs,
+        floorPlates,
+        building.floors,
+        building
+      ),
+      suggestions: generateLayoutSuggestions(building),
+      designOptions: [],
+      selectedPillarId: null,
+      selectedWallId: null,
+      selectedOpeningId: null,
+      selectedStairId: null,
+      selectedBeamId: null,
+      selectedSlabId: null,
+      multiSelectedPillarIds: [],
+      multiSelectedBeamIds: [],
       hydrated: true,
       past: [],
       future: [],

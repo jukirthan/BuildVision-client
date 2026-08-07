@@ -153,7 +153,7 @@ async function parseBody(res: Response): Promise<Record<string, unknown>> {
       success: false,
       message:
         res.status === 404
-          ? "API route not found. Start the Flask backend (port 5000)."
+          ? "API route not found. Check that the Flask backend is running on port 5055."
           : `Unexpected response (${res.status}). Is the API running?`,
     };
   }
@@ -199,11 +199,12 @@ async function request<T>(
       message: typeof json.message === "string" ? json.message : undefined,
       data: json.data as T | undefined,
     };
-  } catch {
+  } catch (error) {
+    const detail = error instanceof Error ? ` (${error.message})` : "";
     return {
       success: false,
       message:
-        "Cannot reach BuildVision API. Start the backend with: cd backend && py run.py",
+        `Cannot reach BuildVision API on port 5055. Start it with: cd backend && py run.py${detail}`,
     };
   }
 }
@@ -310,6 +311,15 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  getBuildingDesign: <T>(buildingId: number) =>
+    request<DesignDocument<T>>(`/api/v1/buildings/${buildingId}/design`),
+
+  saveBuildingDesign: <T>(buildingId: number, snapshot: T, version: number) =>
+    request<DesignDocument<T>>(`/api/v1/buildings/${buildingId}/design`, {
+      method: "PUT",
+      body: JSON.stringify({ snapshot, version }),
+    }),
+
   // ── Admin ─────────────────────────────────────────────────────────
   adminOverview: () => request<AdminOverview>("/api/admin/overview"),
 
@@ -403,6 +413,12 @@ export interface BuildingDto {
   length?: number;
   height?: number;
   project_id?: number;
+  design_version?: number;
+}
+
+export interface DesignDocument<T> {
+  snapshot: T | null;
+  version: number;
 }
 
 export interface ProjectDto {
