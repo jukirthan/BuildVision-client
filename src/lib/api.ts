@@ -154,8 +154,8 @@ async function parseBody(res: Response): Promise<Record<string, unknown>> {
       success: false,
       message:
         res.status === 404
-          ? "API route not found. Check that the Flask backend is running on port 5055."
-          : `Unexpected response (${res.status}). Is the API running?`,
+          ? "API route not found. Check the configured backend URL."
+          : `Unexpected response (${res.status}). Is the API available?`,
     };
   }
 }
@@ -205,7 +205,7 @@ async function request<T>(
     return {
       success: false,
       message:
-        `Cannot reach BuildVision API on port 5055. Start it with: cd backend && py run.py${detail}`,
+        `Cannot reach the BuildVision API. Check the configured backend URL and service status.${detail}`,
     };
   }
 }

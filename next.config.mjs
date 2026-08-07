@@ -2,7 +2,7 @@
 const API_ORIGIN = (
   process.env.API_PROXY_ORIGIN ||
   process.env.NEXT_PUBLIC_API_URL ||
-  "http://127.0.0.1:5055"
+  "https://buildvision-api-production-97a8.up.railway.app"
 ).replace(/\/$/, "");
 
 const nextConfig = {
