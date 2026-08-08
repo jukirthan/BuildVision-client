@@ -13,6 +13,10 @@
 /.next/
 /out/
 
+# Serwist generates the production worker during `next build`.
+/public/sw.js
+/public/sw.js.map
+
 # production
 /build
 
