@@ -388,7 +388,7 @@ export default function LeftSidebar() {
           aria-label="Close toolbox"
           onClick={() => setLeftOpen(false)}
         />
-        <aside className="fixed inset-y-0 left-0 z-50 flex w-[min(100vw-2.5rem,20rem)] flex-col border-r border-[#e2e8f0] bg-white shadow-2xl pt-safe">
+        <aside className="fixed inset-x-0 bottom-0 z-50 flex max-h-[min(76dvh,640px)] w-full flex-col rounded-t-3xl border-t border-[#e2e8f0] bg-white shadow-2xl pb-safe">
           <PanelBody onClose={() => setLeftOpen(false)} />
         </aside>
       </>

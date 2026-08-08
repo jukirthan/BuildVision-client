@@ -54,7 +54,7 @@ const STEPS: Record<
 
 const TIPS_KEY = "bv-planner-tips-dismissed";
 
-export default function GuidedActionBar() {
+export default function GuidedActionBar({ mobile = false }: { mobile?: boolean }) {
   const tool = useStructureStore((s) => s.tool);
   const wallDraftStart = useStructureStore((s) => s.wallDraftStart);
   const setTool = useStructureStore((s) => s.setTool);
@@ -85,9 +85,15 @@ export default function GuidedActionBar() {
   };
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-30 flex flex-col items-center gap-2 px-3 md:bottom-5">
+    <div
+      className={cn(
+        mobile
+          ? "relative z-20 max-h-[min(36dvh,260px)] shrink-0 overflow-y-auto border-t border-[#d8dee7] bg-[#f4f6f8] px-2 py-2 pb-safe"
+          : "pointer-events-none absolute inset-x-0 bottom-4 z-30 flex flex-col items-center gap-2 px-3 md:bottom-5"
+      )}
+    >
       {showWelcome && (
-        <div className="pointer-events-auto w-full max-w-lg rounded-2xl border border-[#c7d2fe] bg-white p-4 shadow-xl">
+        <div className="pointer-events-auto mx-auto w-full max-w-lg rounded-2xl border border-[#c7d2fe] bg-white p-4 shadow-xl">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#eef2ff] text-[#3D5AFE]">
               <Lightbulb size={20} />
@@ -132,7 +138,7 @@ export default function GuidedActionBar() {
 
       <div
         className={cn(
-          "pointer-events-auto flex w-full max-w-xl items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-lg backdrop-blur-xl sm:px-4",
+          "pointer-events-auto mx-auto flex w-full max-w-xl items-center gap-3 rounded-2xl border px-3 py-2.5 shadow-lg backdrop-blur-xl sm:px-4",
           step.tone === "warn"
             ? "border-rose-200 bg-rose-50/95"
             : step.tone === "action"

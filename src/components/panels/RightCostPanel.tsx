@@ -266,7 +266,7 @@ export default function RightCostPanel() {
           aria-label="Close cost overlay"
           onClick={() => setRightOpen(false)}
         />
-        <aside className="fixed inset-y-0 right-0 z-50 flex w-[min(100vw-2.5rem,22rem)] max-w-full flex-col border-l border-[#d8dee7] bg-white shadow-2xl pt-safe">
+        <aside className="fixed inset-x-0 bottom-0 z-50 flex max-h-[76dvh] w-full flex-col rounded-t-3xl border-t border-[#d8dee7] bg-white shadow-2xl pb-safe">
           <PanelBody onClose={() => setRightOpen(false)} />
         </aside>
       </>

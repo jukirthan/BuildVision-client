@@ -374,16 +374,18 @@ export default function ToolBar() {
 
   if (mobile) {
     return (
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-30 pt-2">
-        <div className="pointer-events-auto mx-2 space-y-2">
-          <div className="flex items-center justify-between gap-2 rounded-2xl border border-[#e2e8f0] bg-white/95 px-2 py-1.5 shadow-lg backdrop-blur">
-            {history}
-            {view}
-            {gizmo}
-            {floors}
+      <div className="relative z-30 shrink-0 border-b border-[#d8dee7] bg-[#f4f6f8] px-2 py-2">
+        <div className="space-y-2">
+          <div className="touch-scroll overflow-x-auto rounded-2xl border border-[#e2e8f0] bg-white/95 px-2 py-1.5 shadow-sm backdrop-blur">
+            <div className="flex min-w-max items-center gap-2">
+              {history}
+              {view}
+              {gizmo}
+              {floors}
+            </div>
           </div>
-          <div className="overflow-x-auto rounded-2xl border border-[#e2e8f0] bg-white/95 p-1.5 shadow-lg backdrop-blur">
-            {tools}
+          <div className="touch-scroll overflow-x-auto rounded-2xl border border-[#e2e8f0] bg-white/95 p-1.5 shadow-sm backdrop-blur">
+            <div className="min-w-max">{tools}</div>
           </div>
         </div>
       </div>

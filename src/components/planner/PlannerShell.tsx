@@ -401,18 +401,21 @@ export default function PlannerShell({
         </div>
       )}
 
-      <div className="relative flex min-h-0 flex-1">
+      <div className={cn("relative flex min-h-0 flex-1", compact && "flex-col")}>
         <LeftSidebar />
-        <main className={cn("relative flex min-w-0 flex-1 flex-col", mobile && "pb-28")}>
-          <div className="relative min-h-0 flex-1">
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col">
             <ToolBar />
-            <StructureCanvas />
-            <GuidedActionBar />
-            {compact && (
-              <div className="pointer-events-none absolute left-3 top-[7.5rem] z-20 rounded-full bg-[#121820]/80 px-3 py-1 text-[11px] font-medium text-white backdrop-blur md:hidden">
-                {formatCurrency(estimate.totalCost)}
-              </div>
-            )}
+            <div className="relative min-h-0 flex-1">
+              <StructureCanvas />
+              {!mobile && <GuidedActionBar />}
+              {compact && (
+                <div className="pointer-events-none absolute left-3 top-3 z-20 rounded-full bg-[#121820]/80 px-3 py-1 text-[11px] font-medium text-white backdrop-blur md:hidden">
+                  {formatCurrency(estimate.totalCost)}
+                </div>
+              )}
+            </div>
+            {mobile && <GuidedActionBar mobile />}
           </div>
           <StatusBar />
         </main>
@@ -423,7 +426,7 @@ export default function PlannerShell({
             className={cn(
               "z-30 flex w-[min(100%,360px)] shrink-0 flex-col border-l border-[#e2e8f0] bg-white",
               compact &&
-                "absolute inset-y-0 right-0 shadow-2xl"
+                "relative max-h-[min(56dvh,560px)] w-full border-l-0 border-t shadow-lg"
             )}
             aria-label="Property inspector"
           >
