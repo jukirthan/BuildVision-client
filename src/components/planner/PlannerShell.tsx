@@ -15,13 +15,12 @@ import {
 } from "lucide-react";
 import LeftSidebar from "@/components/panels/LeftSidebar";
 import RightCostPanel from "@/components/panels/RightCostPanel";
-import GuidedActionBar from "@/components/planner/GuidedActionBar";
 import PropertyInspector from "@/components/planner/PropertyInspector";
 import SceneTree from "@/components/planner/SceneTree";
 import StatusBar from "@/components/planner/StatusBar";
 import ToolBar from "@/components/planner/ToolBar";
 import ArchitecturalOutputWindow from "@/components/output/ArchitecturalOutputWindow";
-import { useIsCompact, useIsMobile } from "@/hooks/useMediaQuery";
+import { useIsCompact } from "@/hooks/useMediaQuery";
 import { formatCurrency } from "@/lib/cost-estimator";
 import {
   exportFloorPlanPng,
@@ -77,7 +76,6 @@ export default function PlannerShell({
   const [outputWindowOpen, setOutputWindowOpen] = useState(false);
 
   const compact = useIsCompact();
-  const mobile = useIsMobile();
 
   useEffect(() => {
     if (!hydrated) initDemo();
@@ -408,14 +406,12 @@ export default function PlannerShell({
             <ToolBar />
             <div className="relative min-h-0 flex-1">
               <StructureCanvas />
-              {!mobile && <GuidedActionBar />}
               {compact && (
                 <div className="pointer-events-none absolute left-3 top-3 z-20 rounded-full bg-[#121820]/80 px-3 py-1 text-[11px] font-medium text-white backdrop-blur md:hidden">
                   {formatCurrency(estimate.totalCost)}
                 </div>
               )}
             </div>
-            {mobile && <GuidedActionBar mobile />}
           </div>
           <StatusBar />
         </main>
