@@ -20,6 +20,7 @@ import PropertyInspector from "@/components/planner/PropertyInspector";
 import SceneTree from "@/components/planner/SceneTree";
 import StatusBar from "@/components/planner/StatusBar";
 import ToolBar from "@/components/planner/ToolBar";
+import ArchitecturalOutputWindow from "@/components/output/ArchitecturalOutputWindow";
 import { useIsCompact, useIsMobile } from "@/hooks/useMediaQuery";
 import { formatCurrency } from "@/lib/cost-estimator";
 import {
@@ -73,6 +74,7 @@ export default function PlannerShell({
   const clearMultiSelect = useStructureStore((s) => s.clearMultiSelect);
   const [exportError, setExportError] = useState("");
   const [exportMenu, setExportMenu] = useState(false);
+  const [outputWindowOpen, setOutputWindowOpen] = useState(false);
 
   const compact = useIsCompact();
   const mobile = useIsMobile();
@@ -95,6 +97,7 @@ export default function PlannerShell({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setExportMenu(false);
+        setOutputWindowOpen(false);
         if (viewMode === "inside") {
           setViewMode("orbit");
         }
@@ -342,6 +345,16 @@ export default function PlannerShell({
                 <div className="absolute right-0 top-12 z-50 w-52 overflow-hidden rounded-2xl border border-[#e2e8f0] bg-white shadow-xl">
                   <button
                     type="button"
+                    onClick={() => {
+                      setExportMenu(false);
+                      setOutputWindowOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 border-b border-[#eef2f6] px-3 py-2.5 text-left text-sm font-semibold text-[#2563eb] hover:bg-[#eff6ff]"
+                  >
+                    <SquarePen size={14} /> Open output window
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => runExport("plan-png")}
                     className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-[#f8fafc]"
                   >
@@ -435,6 +448,16 @@ export default function PlannerShell({
 
         <RightCostPanel />
       </div>
+      {outputWindowOpen && (
+        <ArchitecturalOutputWindow
+          payload={floorPlanPayload}
+          onClose={() => setOutputWindowOpen(false)}
+          onPdf={() => {
+            setOutputWindowOpen(false);
+            void runExport("pdf");
+          }}
+        />
+      )}
     </div>
   );
 }
