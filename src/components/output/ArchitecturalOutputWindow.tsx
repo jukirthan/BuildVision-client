@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Download, FileImage, FileText, Layers, X } from "lucide-react";
 import {
   createPerspectiveSketchSvg,
@@ -61,6 +62,7 @@ export default function ArchitecturalOutputWindow({
 }) {
   const [tab, setTab] = useState<OutputTab>("plan");
   const [exporting, setExporting] = useState<"png" | null>(null);
+  const [mounted, setMounted] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const planSvg = useMemo(() => createTechnicalFloorPlanSvg(payload), [payload]);
   const perspectiveSvg = useMemo(() => createPerspectiveSketchSvg(payload), [payload]);
@@ -68,6 +70,11 @@ export default function ArchitecturalOutputWindow({
   const name = slug(payload.project);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     const previousFocus = document.activeElement as HTMLElement | null;
     closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -78,7 +85,7 @@ export default function ArchitecturalOutputWindow({
       window.removeEventListener("keydown", onKeyDown);
       previousFocus?.focus();
     };
-  }, [onClose]);
+  }, [mounted, onClose]);
 
   const downloadSvg = () => {
     downloadBlob(new Blob([activeSvg], { type: "image/svg+xml" }), `${name}-${tab === "plan" ? "technical-floor-plan" : "two-point-perspective"}.svg`);
@@ -93,9 +100,11 @@ export default function ArchitecturalOutputWindow({
     }
   };
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-[#0f172a]/65 p-2 backdrop-blur-sm sm:p-5"
+      className="fixed inset-0 z-[110] flex items-center justify-center bg-[#0f172a]/65 p-2 backdrop-blur-sm sm:p-5"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -154,6 +163,7 @@ export default function ArchitecturalOutputWindow({
           </div>
         </footer>
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }
