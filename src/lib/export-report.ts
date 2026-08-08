@@ -9,6 +9,7 @@ import type {
 } from "@/types/structure";
 import { formatCurrency } from "@/lib/cost-estimator";
 import { renderFloorPlanCanvas } from "@/lib/export-floorplan";
+import { createPerspectiveSketchSvg, svgDataUrl } from "@/lib/architectural-svg";
 
 export type ExportPayload = {
   project: string;
@@ -40,15 +41,23 @@ function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 function downloadDataUrl(dataUrl: string, filename: string) {
   const a = document.createElement("a");
   a.href = dataUrl;
   a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
+  window.setTimeout(() => a.remove(), 1000);
 }
 
 /** Capture the live 3D canvas as a PNG data URL. */
@@ -76,6 +85,25 @@ export function exportImage(projectName: string) {
     throw new Error("3D view is not ready yet. Wait for the canvas to load.");
   }
   downloadDataUrl(dataUrl, `${slug(projectName)}-view.png`);
+}
+
+async function rasterizeSvg(svg: string) {
+  const image = new window.Image();
+  image.decoding = "async";
+  image.src = svgDataUrl(svg);
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("Could not rasterize the perspective sketch."));
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = 1200;
+  canvas.height = 760;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not create a perspective export context.");
+  context.fillStyle = "#f8fafc";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/png");
 }
 
 export async function exportPdf(payload: ExportPayload) {
@@ -181,6 +209,32 @@ export async function exportPdf(payload: ExportPayload) {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.text("Floor plan could not be rendered.", margin, y);
+    }
+
+    try {
+      const perspective = await rasterizeSvg(
+        createPerspectiveSketchSvg({
+          project: payload.project,
+          building: payload.building,
+          pillars: payload.pillars,
+          beams: payload.beams,
+          floorPlates: payload.floorPlates,
+          activeFloor: payload.activeFloor ?? 1,
+        })
+      );
+      doc.addPage();
+      y = 18;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(0);
+      doc.text("Architectural Exterior Perspective", margin, y);
+      y += 8;
+      const perspectiveW = pageW - margin * 2;
+      const perspectiveH = perspectiveW * (760 / 1200);
+      doc.addImage(perspective, "PNG", margin, y, perspectiveW, perspectiveH);
+    } catch {
+      // The technical plan and the rest of the report remain exportable even
+      // when a browser cannot rasterize the optional concept sketch.
     }
   }
 
