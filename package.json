@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "pwa:icons": "node scripts/generate-pwa-icons.mjs",
     "docs:guide": "node scripts/generate-user-guide.js"
   },
   "dependencies": {
