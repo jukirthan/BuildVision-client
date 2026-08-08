@@ -22,6 +22,11 @@ export type AuthPayload = {
   user: AuthUser;
 };
 
+export type AiChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 const TOKEN_COOKIE = "bv_token";
 const ROLE_COOKIE = "bv_role";
 
@@ -238,6 +243,12 @@ async function requestWithFallback<T>(
 
 export const api = {
   health: () => request<{ status: string }>("/api/health"),
+
+  aiChat: (messages: AiChatMessage[]) =>
+    request<{ text: string }>("/api/ai/chat", {
+      method: "POST",
+      body: JSON.stringify({ messages }),
+    }),
 
   login: (email: string, password: string) =>
     requestWithFallback<AuthPayload>(

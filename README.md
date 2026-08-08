@@ -34,6 +34,11 @@ npm run start -- -p 3000
 
 The frontend proxies `/api/*` to Flask. Set `API_PROXY_ORIGIN` to the backend origin without `/api` for Vercel/Railway deployments. `NEXT_PUBLIC_SITE_URL` is optional, but should be set to the public Vercel/custom-domain origin so Open Graph and Twitter images resolve to the deployed site.
 
+The AI Assistant calls the authenticated `/api/ai/chat` endpoint. Configure
+`OPENAI_API_KEY` and optionally `OPENAI_MODEL` on the Flask/Railway/AWS backend
+only. Do not add the key to `NEXT_PUBLIC_*` variables or expose it in the
+browser.
+
 For a local production PWA check, run `npm run build` followed by `npm run start -- -p 3000`, then open `http://localhost:3000`. Service workers are intentionally not registered by `npm run dev`.
 
 ## Icons and screenshot replacement
