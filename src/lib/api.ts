@@ -27,6 +27,8 @@ export type AiChatMessage = {
   content: string;
 };
 
+export type AiProvider = "openai" | "gemini";
+
 const TOKEN_COOKIE = "bv_token";
 const ROLE_COOKIE = "bv_role";
 
@@ -244,10 +246,10 @@ async function requestWithFallback<T>(
 export const api = {
   health: () => request<{ status: string }>("/api/health"),
 
-  aiChat: (messages: AiChatMessage[]) =>
+  aiChat: (messages: AiChatMessage[], provider: AiProvider = "openai") =>
     request<{ text: string }>("/api/ai/chat", {
       method: "POST",
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ messages, provider }),
     }),
 
   login: (email: string, password: string) =>

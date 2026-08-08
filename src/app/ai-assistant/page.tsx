@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/app/AppShell";
 import PageHeader from "@/components/app/PageHeader";
-import { api, getUser, type AiChatMessage } from "@/lib/api";
+import { api, getUser, type AiChatMessage, type AiProvider } from "@/lib/api";
 
 type Message = AiChatMessage & { id: string };
 
@@ -32,6 +32,7 @@ export default function AiAssistantPage() {
   ]);
   const [input, setInput] = useState("");
   const [userName, setUserName] = useState<string | null>(null);
+  const [provider, setProvider] = useState<AiProvider>("gemini");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
@@ -63,7 +64,7 @@ export default function AiAssistantPage() {
     setSending(true);
 
     try {
-      const result = await api.aiChat(history);
+      const result = await api.aiChat(history, provider);
       if (!result.success || !result.data?.text) {
         setError(
           result.message ||
@@ -109,12 +110,18 @@ export default function AiAssistantPage() {
               </span>
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold text-text-primary sm:text-base">BuildVision Assistant</h2>
-                <p className="truncate text-xs text-text-secondary">OpenAI Responses API · secure backend proxy</p>
+                <p className="truncate text-xs text-text-secondary">{provider === "gemini" ? "Google Gemini" : "OpenAI Responses API"} · secure backend proxy</p>
               </div>
             </div>
-            <span className="hidden items-center gap-1.5 rounded-full border border-accent-border bg-accent-soft px-2.5 py-1 text-[11px] font-semibold text-accent sm:inline-flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Protected
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-xl border border-border bg-white p-1" role="group" aria-label="Choose AI provider">
+                <button type="button" onClick={() => setProvider("openai")} className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:px-3 ${provider === "openai" ? "bg-accent-soft text-accent" : "text-text-secondary hover:text-text-primary"}`}>OpenAI</button>
+                <button type="button" onClick={() => setProvider("gemini")} className={`rounded-lg px-2.5 py-1.5 text-[11px] font-semibold transition sm:px-3 ${provider === "gemini" ? "bg-cyan-soft text-cyan" : "text-text-secondary hover:text-text-primary"}`}>Gemini</button>
+              </div>
+              <span className="hidden items-center gap-1.5 rounded-full border border-accent-border bg-accent-soft px-2.5 py-1 text-[11px] font-semibold text-accent lg:inline-flex">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Protected
+              </span>
+            </div>
           </header>
 
           <div ref={listRef} className="touch-scroll min-h-0 flex-1 space-y-5 overflow-y-auto bg-canvas/50 p-4 sm:space-y-6 sm:p-7" aria-live="polite">
