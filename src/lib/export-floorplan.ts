@@ -1,21 +1,16 @@
 import type {
-  Beam,
   BuildingConfig,
-  FloorPlate,
   Opening,
-  Pillar,
   Stair,
   Wall,
 } from "@/types/structure";
+import {
+  deriveArchitecturalOutput,
+  type ArchitecturalOutputPayload,
+} from "@/types/architectural-output";
+import { createTechnicalFloorPlanSvg } from "@/lib/architectural-svg";
 
-export type FloorPlanPayload = {
-  project: string;
-  building: BuildingConfig;
-  pillars: Pillar[];
-  beams: Beam[];
-  floorPlates: FloorPlate[];
-  activeFloor: number;
-};
+export type FloorPlanPayload = ArchitecturalOutputPayload;
 
 function slug(name: string) {
   return name.replace(/\s+/g, "-").toLowerCase() || "structure";
@@ -26,15 +21,23 @@ function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 function downloadDataUrl(dataUrl: string, filename: string) {
   const a = document.createElement("a");
   a.href = dataUrl;
   a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
+  window.setTimeout(() => a.remove(), 1000);
 }
 
 type Layout = {
@@ -167,6 +170,49 @@ function drawFloorPlan(
   ctx.lineWidth = 2.5;
   ctx.strokeRect(ox, oy, drawW, drawH);
 
+  // Presentation-level room zoning and MEP annotations. Structural walls and
+  // openings remain the source of truth and are drawn on top of these guides.
+  const output = deriveArchitecturalOutput(payload);
+  for (const room of output.rooms) {
+    const topLeft = toCanvas(layout, room.x, room.y);
+    ctx.fillStyle =
+      room.kind === "living"
+        ? "rgba(37,99,235,0.08)"
+        : room.kind === "kitchen"
+          ? "rgba(245,158,11,0.10)"
+          : room.kind === "bedroom"
+            ? "rgba(124,58,237,0.08)"
+            : "rgba(6,182,212,0.10)";
+    ctx.fillRect(topLeft.cx, topLeft.cy, room.width * scale, room.height * scale);
+    ctx.strokeStyle = "#94a3b8";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([7, 5]);
+    ctx.strokeRect(topLeft.cx, topLeft.cy, room.width * scale, room.height * scale);
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#334155";
+    ctx.font = "600 13px Source Sans 3, Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(room.name, topLeft.cx + (room.width * scale) / 2, topLeft.cy + (room.height * scale) / 2 - 2);
+    ctx.font = "500 11px Source Sans 3, Arial, sans-serif";
+    ctx.fillStyle = "#64748b";
+    ctx.fillText(`${room.area.toFixed(1)} m²`, topLeft.cx + (room.width * scale) / 2, topLeft.cy + (room.height * scale) / 2 + 14);
+    ctx.textAlign = "left";
+  }
+
+  for (const route of output.plumbingRoutes) {
+    ctx.strokeStyle = route.kind === "supply" ? "#2563eb" : route.kind === "waste" ? "#7c3aed" : "#0891b2";
+    ctx.lineWidth = 2;
+    ctx.setLineDash(route.kind === "drainage" ? [8, 5] : [4, 4]);
+    ctx.beginPath();
+    route.points.forEach((point, index) => {
+      const p = toCanvas(layout, point.x, point.y);
+      if (index === 0) ctx.moveTo(p.cx, p.cy);
+      else ctx.lineTo(p.cx, p.cy);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
   // Beams
   ctx.strokeStyle = "#8b9aab";
   ctx.lineWidth = Math.max(2, 0.25 * scale);
@@ -225,6 +271,50 @@ function drawFloorPlan(
     ctx.textAlign = "left";
   }
 
+  for (const point of output.electrical) {
+    const p = toCanvas(layout, point.x, point.y);
+    ctx.strokeStyle = point.kind === "panel" ? "#7c3aed" : "#f59e0b";
+    ctx.fillStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    if (point.kind === "light") {
+      ctx.beginPath();
+      ctx.arc(p.cx, p.cy, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(p.cx - 5, p.cy);
+      ctx.lineTo(p.cx + 5, p.cy);
+      ctx.moveTo(p.cx, p.cy - 5);
+      ctx.lineTo(p.cx, p.cy + 5);
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(p.cx - 5, p.cy - 5, 10, 10);
+      if (point.kind === "panel") {
+        ctx.beginPath();
+        ctx.moveTo(p.cx - 3, p.cy);
+        ctx.lineTo(p.cx + 3, p.cy);
+        ctx.stroke();
+      }
+    }
+    ctx.fillStyle = "#475569";
+    ctx.font = "600 8px Source Sans 3, Arial, sans-serif";
+    ctx.fillText(point.label, p.cx + 8, p.cy + 3);
+  }
+
+  for (const point of output.plumbing) {
+    const p = toCanvas(layout, point.x, point.y);
+    ctx.strokeStyle = "#0891b2";
+    ctx.fillStyle = "#ecfeff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(p.cx, p.cy, point.kind === "inspection" ? 8 : 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#0e7490";
+    ctx.font = "600 8px Source Sans 3, Arial, sans-serif";
+    ctx.fillText(point.label, p.cx + 9, p.cy + 3);
+  }
+
   // Overall dimensions
   ctx.strokeStyle = "#e35b1c";
   ctx.fillStyle = "#e35b1c";
@@ -274,6 +364,8 @@ function drawFloorPlan(
     ["#2563eb", "Door"],
     ["#0ea5e9", "Window"],
     ["#a8b4c0", "Stair"],
+    ["#f59e0b", "Electrical"],
+    ["#0891b2", "Plumbing / drain"],
   ];
   let lx = 32;
   for (const [color, label] of items) {
@@ -283,7 +375,7 @@ function drawFloorPlan(
     ctx.strokeRect(lx, ly - 8, 14, 14);
     ctx.fillStyle = "#5b6570";
     ctx.fillText(label, lx + 20, ly + 4);
-    lx += 90;
+    lx += label.length > 14 ? 132 : 90;
   }
 
   ctx.fillStyle = "#94a3b8";
@@ -405,7 +497,7 @@ export function exportFloorPlanPng(payload: FloorPlanPayload) {
 }
 
 /** Export current floor as SVG drawing (vector). */
-export function exportFloorPlanSvg(payload: FloorPlanPayload) {
+function exportFloorPlanSvgLegacy(payload: FloorPlanPayload) {
   // Rasterize via canvas then wrap is lossy for SVG — draw a simple SVG instead.
   const { building, pillars, beams, floorPlates, activeFloor, project } =
     payload;
@@ -487,5 +579,20 @@ export function exportFloorPlanSvg(payload: FloorPlanPayload) {
   downloadBlob(
     blob,
     `${slug(project)}-floor-${activeFloor}-plan.svg`
+  );
+}
+
+/** Export the detailed vector drawing used by the output window. */
+export function exportFloorPlanSvg(payload: FloorPlanPayload) {
+  // Keep the legacy renderer available for rollback while the vector renderer
+  // is the production path. The reference also prevents lint from treating it
+  // as an accidental dead local during the transition.
+  void exportFloorPlanSvgLegacy;
+  const blob = new Blob([createTechnicalFloorPlanSvg(payload)], {
+    type: "image/svg+xml",
+  });
+  downloadBlob(
+    blob,
+    `${slug(payload.project)}-floor-${payload.activeFloor}-plan.svg`
   );
 }
