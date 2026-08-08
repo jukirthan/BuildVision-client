@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileImage, FileText, Layers, X } from "lucide-react";
 import {
   createPerspectiveSketchSvg,
@@ -60,18 +60,24 @@ export default function ArchitecturalOutputWindow({
   onPdf: () => void;
 }) {
   const [tab, setTab] = useState<OutputTab>("plan");
-  const [exporting, setExporting] = useState<"png" | "svg" | null>(null);
+  const [exporting, setExporting] = useState<"png" | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const planSvg = useMemo(() => createTechnicalFloorPlanSvg(payload), [payload]);
   const perspectiveSvg = useMemo(() => createPerspectiveSketchSvg(payload), [payload]);
   const activeSvg = tab === "plan" ? planSvg : perspectiveSvg;
   const name = slug(payload.project);
 
   useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
+    closeButtonRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      previousFocus?.focus();
+    };
   }, [onClose]);
 
   const downloadSvg = () => {
@@ -99,6 +105,7 @@ export default function ArchitecturalOutputWindow({
         role="dialog"
         aria-modal="true"
         aria-labelledby="architectural-output-title"
+        aria-busy={Boolean(exporting)}
         className="flex max-h-[96vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border border-[#d8dee7] bg-[#f8fafc] shadow-2xl"
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e2e8f0] bg-white px-4 py-3 sm:px-6">
@@ -109,7 +116,7 @@ export default function ArchitecturalOutputWindow({
               <p className="truncate text-xs text-[#64748b]">{payload.building.name} · Floor {payload.activeFloor} · review before export</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl text-[#64748b] hover:bg-[#f1f5f9] hover:text-[#121820]" aria-label="Close architectural output window"><X size={19} /></button>
+          <button ref={closeButtonRef} type="button" onClick={onClose} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl text-[#64748b] hover:bg-[#f1f5f9] hover:text-[#121820]" aria-label="Close architectural output window"><X size={19} /></button>
         </header>
 
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e2e8f0] bg-white px-4 py-2 sm:px-6">
