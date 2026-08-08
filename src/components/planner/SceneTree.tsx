@@ -20,9 +20,8 @@ type TreeItem = {
 };
 
 export default function SceneTree() {
-  const pillars = useStructureStore((s) => s.pillars);
-  const beams = useStructureStore((s) => s.beams);
-  const slabs = useStructureStore((s) => s.slabs);
+  const floors = useStructureStore((s) => s.floors);
+  const activeFloorId = useStructureStore((s) => s.activeFloorId);
   const floorPlates = useStructureStore((s) => s.floorPlates);
   const activeFloor = useStructureStore((s) => s.activeFloor);
   const selectedPillarId = useStructureStore((s) => s.selectedPillarId);
@@ -39,19 +38,15 @@ export default function SceneTree() {
   const selectOpening = useStructureStore((s) => s.selectOpening);
   const setInspectorOpen = useStructureStore((s) => s.setInspectorOpen);
 
-  const plate = floorPlates.find((p) => p.floor === activeFloor);
-  const floorPillars = pillars.filter((p) => (p.floor ?? 1) === activeFloor);
-  // Beams/slabs are not floor-tagged; associate beams with pillars on this floor
-  // by endpoint proximity (same matching tolerance as the structural engine).
-  const floorBeams = beams.filter((b) =>
-    floorPillars.some(
-      (p) =>
-        Math.hypot(p.x - b.startX, p.y - b.startY) < 0.4 ||
-        Math.hypot(p.x - b.endX, p.y - b.endY) < 0.4
-    )
+  const floor =
+    floors.find((item) => item.id === activeFloorId) ??
+    floors.find((item) => item.floorNumber === activeFloor);
+  const plate = floorPlates.find(
+    (p) => p.floorId === floor?.id || p.floor === activeFloor
   );
-  // Slabs are building-wide; show them on floor 1 so the tree stays useful.
-  const floorSlabs = activeFloor === 1 ? slabs : [];
+  const floorPillars = floor?.pillars ?? [];
+  const floorBeams = floor?.beams ?? [];
+  const floorSlabs = floor?.slabs ?? [];
   const building = useStructureStore((s) => s.building);
   const setBuilding = useStructureStore((s) => s.setBuilding);
 
@@ -141,7 +136,7 @@ export default function SceneTree() {
     <div className="flex max-h-52 flex-col border-b border-[#eef2f6]">
       <div className="flex items-center justify-between px-3 py-2">
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-[#94a3b8]">
-          Scene · Floor {activeFloor}
+          Scene · {floor?.name ?? `Floor ${activeFloor}`}
         </p>
         <span className="text-[10px] tabular-nums text-[#94a3b8]">
           {items.length}

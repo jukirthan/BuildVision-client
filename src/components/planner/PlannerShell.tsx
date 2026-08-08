@@ -16,6 +16,7 @@ import {
 import LeftSidebar from "@/components/panels/LeftSidebar";
 import RightCostPanel from "@/components/panels/RightCostPanel";
 import PropertyInspector from "@/components/planner/PropertyInspector";
+import FloorCreationDialog from "@/components/planner/FloorCreationDialog";
 import SceneTree from "@/components/planner/SceneTree";
 import StatusBar from "@/components/planner/StatusBar";
 import ToolBar from "@/components/planner/ToolBar";
@@ -457,6 +458,7 @@ export default function PlannerShell({
           }}
         />
       )}
+      <FloorCreationDialog />
     </div>
   );
 }

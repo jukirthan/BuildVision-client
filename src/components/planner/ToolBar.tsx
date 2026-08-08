@@ -83,9 +83,9 @@ export default function ToolBar() {
   const tool = useStructureStore((s) => s.tool);
   const setTool = useStructureStore((s) => s.setTool);
   const activeFloor = useStructureStore((s) => s.activeFloor);
+  const floorItems = useStructureStore((s) => s.floors);
   const setActiveFloor = useStructureStore((s) => s.setActiveFloor);
-  const building = useStructureStore((s) => s.building);
-  const addFloor = useStructureStore((s) => s.addFloor);
+  const setFloorCreationOpen = useStructureStore((s) => s.setFloorCreationOpen);
   const viewMode = useStructureStore((s) => s.viewMode);
   const setViewMode = useStructureStore((s) => s.setViewMode);
   const cutaway = useStructureStore((s) => s.cutaway);
@@ -236,6 +236,23 @@ export default function ToolBar() {
         <Layers size={14} />,
         "Separate floors in 3D"
       )}
+      <select
+        aria-label="Floor visibility"
+        value={viewFlags.floorVisibility}
+        onChange={(event) =>
+          setViewFlags({
+            floorVisibility: event.target.value as typeof viewFlags.floorVisibility,
+          })
+        }
+        className="h-9 max-w-40 rounded-xl border border-[#e2e8f0] bg-white px-2 text-[11px] font-semibold text-[#475569]"
+      >
+        <option value="active">Active floor only</option>
+        <option value="active_with_lower_ghosted">Active + lower ghosted</option>
+        <option value="all">All floors</option>
+        <option value="exploded">Exploded floors</option>
+        <option value="isolate_floor">Isolate selected floor</option>
+        <option value="isolate_member">Isolate selected member</option>
+      </select>
     </div>
   );
 
@@ -270,25 +287,25 @@ export default function ToolBar() {
       <span className="hidden px-1 text-[10px] font-semibold uppercase tracking-wide text-[#94a3b8] sm:inline">
         Floor
       </span>
-      {Array.from({ length: building.floors }, (_, i) => i + 1).map((f) => (
+      {floorItems.map((floor) => (
         <button
-          key={f}
+          key={floor.id}
           type="button"
-          onClick={() => setActiveFloor(f)}
+          onClick={() => setActiveFloor(floor.id)}
           className={cn(
             "min-h-8 min-w-8 rounded-lg text-xs font-bold transition",
-            activeFloor === f
+            activeFloor === floor.floorNumber
               ? "bg-[#2563EB] text-white"
               : "bg-[#f1f5f9] text-[#64748b] hover:bg-[#e2e8f0]"
           )}
         >
-          {f}
+          {floor.floorNumber}
         </button>
       ))}
       <button
         type="button"
-        onClick={() => addFloor()}
-        disabled={building.floors >= 20}
+        onClick={() => setFloorCreationOpen(true)}
+        disabled={floorItems.length >= 50}
         title="Add another floor"
         className="inline-flex min-h-8 items-center gap-1 rounded-lg bg-[#121820] px-2 text-xs font-semibold text-white hover:bg-[#2563EB] disabled:opacity-40"
       >

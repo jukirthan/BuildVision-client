@@ -18,6 +18,21 @@ export type ViewMode = "orbit" | "inside";
 
 export type MemberStatus = "safe" | "warning" | "fail";
 
+/** The scope used when a structural edit is applied. */
+export type EditScope =
+  | "this_member"
+  | "stack_upward"
+  | "stack_all_floors"
+  | "selected_members";
+
+export type FloorVisibilityMode =
+  | "active"
+  | "active_with_lower_ghosted"
+  | "all"
+  | "exploded"
+  | "isolate_floor"
+  | "isolate_member";
+
 export type ConcreteGrade = "M20" | "M25" | "M30" | "M35" | "M40";
 export type SteelGrade = "Fe415" | "Fe500" | "Fe550";
 
@@ -172,6 +187,10 @@ export interface FoundationConfig {
 
 export interface Pillar {
   id: string;
+  /** Stable parent floor id. Never use floor number as ownership. */
+  floorId: string;
+  /** Stable vertical continuity key shared by related storey segments. */
+  stackId: string;
   name: string;
   x: number;
   y: number;
@@ -180,6 +199,8 @@ export interface Pillar {
   /** Section depth (m) */
   depth: number;
   height: number;
+  /** Elevation of the bottom of this segment (m). */
+  baseElevation: number;
   material: MaterialType;
   loadCapacity: number;
   floor?: number;
@@ -188,6 +209,7 @@ export interface Pillar {
   clearCoverMm?: number;
   shape?: SectionShape;
   rotationDeg?: number;
+  transferCondition?: "none" | "transfer_beam" | "transfer_slab";
   longitudinalBars?: RebarLayer;
   stirrups?: StirrupSpec;
   rebarZones?: RebarZones;
@@ -200,6 +222,8 @@ export interface Pillar {
 
 export interface Beam {
   id: string;
+  /** Stable parent floor id. */
+  floorId: string;
   name: string;
   startX: number;
   startY: number;
@@ -223,13 +247,15 @@ export interface Beam {
   supportCondition?: "simply" | "continuous" | "cantilever";
   loads?: DesignLoads;
   check?: MemberCheck;
-  startPillarId?: string;
-  endPillarId?: string;
+  startPillarId: string;
+  endPillarId: string;
   supportedSlabIds?: string[];
 }
 
 export interface Slab {
   id: string;
+  /** Stable parent floor id. */
+  floorId: string;
   name: string;
   thickness: number;
   area: number;
@@ -373,6 +399,21 @@ export interface MaterialEstimate {
   slabAreaM2: number;
   brickCount: number;
   boq: BoqLine[];
+  /** Optional per-floor BOQ summaries for multi-floor designs. */
+  floorEstimates?: FloorCostEstimate[];
+}
+
+export interface FloorCostEstimate {
+  floorId: string;
+  floorNumber: number;
+  name: string;
+  concreteVolumeM3: number;
+  reinforcementKg: number;
+  formworkM2: number;
+  pillarCost: number;
+  beamCost: number;
+  slabCost: number;
+  totalCost: number;
 }
 
 export interface LayoutSuggestion {
@@ -410,9 +451,27 @@ export interface DesignOption {
 
 export interface FloorPlate {
   floor: number;
+  /** Stable floor id for legacy floor-plate consumers. */
+  floorId?: string;
   walls: Wall[];
   openings: Opening[];
   stairs: Stair[];
+}
+
+/** Canonical floor-owned structural model used by the planner. */
+export interface Floor {
+  id: string;
+  floorNumber: number;
+  name: string;
+  elevation: number;
+  height: number;
+  pillars: Pillar[];
+  beams: Beam[];
+  slabs: Slab[];
+  walls: Wall[];
+  openings: Opening[];
+  stairs: Stair[];
+  structuralWarningCount?: number;
 }
 
 export type AdvisorSeverity = "info" | "recommendation" | "warning" | "critical";
@@ -452,4 +511,5 @@ export interface ViewFlags {
   gizmoMode: "off" | "translate" | "rotate";
   /** Dim non-selected members (Iron Man isolate) */
   isolateSelection: boolean;
+  floorVisibility: FloorVisibilityMode;
 }

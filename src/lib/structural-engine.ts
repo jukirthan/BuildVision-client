@@ -57,7 +57,9 @@ export function generatePillarGrid(
   rows: number,
   pillarWidth = 0.4,
   pillarDepth = 0.4,
-  margin = 1
+  margin = 1,
+  floorId = "legacy-floor",
+  baseElevation = 0
 ): Pillar[] {
   const usableW = Math.max(building.width - margin * 2, 1);
   const usableL = Math.max(building.length - margin * 2, 1);
@@ -72,12 +74,15 @@ export function generatePillarGrid(
         rows === 1 ? building.length / 2 : margin + (r / (rows - 1)) * usableL;
       pillars.push({
         id: uid("p"),
+        floorId,
+        stackId: `stack-${round(x, 3)}-${round(y, 3)}`,
         name: `P${n}`,
         x: round(x, 2),
         y: round(y, 2),
         width: pillarWidth,
         depth: pillarDepth,
         height: building.floorHeight,
+        baseElevation,
         material: "concrete",
         loadCapacity: pillarLoadCapacity(
           pillarWidth,
@@ -95,7 +100,8 @@ export function generateBeamsFromPillars(
   pillars: Pillar[],
   beamWidth = 0.3,
   beamDepth = 0.5,
-  floorHeight = 3
+  floorHeight = 3,
+  floorId = pillars[0]?.floorId ?? "legacy-floor"
 ): Beam[] {
   if (pillars.length < 2) return [];
 
@@ -123,7 +129,7 @@ export function generateBeamsFromPillars(
       const key = edgeKey(a.id, b.id);
       if (seen.has(key)) continue;
       seen.add(key);
-      beams.push(makeBeam(a, b, beams.length + 1, beamWidth, beamDepth, floorHeight));
+      beams.push(makeBeam(a, b, beams.length + 1, beamWidth, beamDepth, floorHeight, floorId));
     }
   }
 
@@ -137,7 +143,7 @@ export function generateBeamsFromPillars(
       const key = edgeKey(a.id, b.id);
       if (seen.has(key)) continue;
       seen.add(key);
-      beams.push(makeBeam(a, b, beams.length + 1, beamWidth, beamDepth, floorHeight));
+      beams.push(makeBeam(a, b, beams.length + 1, beamWidth, beamDepth, floorHeight, floorId));
     }
   }
 
@@ -150,11 +156,13 @@ function makeBeam(
   index: number,
   width: number,
   depth: number,
-  floorHeight: number
+  floorHeight: number,
+  floorId: string
 ): Beam {
   const length = round(dist(a.x, a.y, b.x, b.y), 4);
   return {
     id: uid("b"),
+    floorId,
     name: `B${index}`,
     startX: a.x,
     startY: a.y,
@@ -166,13 +174,20 @@ function makeBeam(
     material: "concrete",
     loadBearing: beamLoadBearing(width, depth, length),
     height: floorHeight,
+    startPillarId: a.id,
+    endPillarId: b.id,
   };
 }
 
-export function generateSlab(building: BuildingConfig, thickness = 0.15): Slab {
+export function generateSlab(
+  building: BuildingConfig,
+  thickness = 0.15,
+  floorId = "legacy-floor"
+): Slab {
   const area = round(building.width * building.length, 2);
   return {
     id: uid("s"),
+    floorId,
     name: "Slab-1",
     thickness,
     area,
@@ -194,6 +209,9 @@ export function recalculateStructure(
 ) {
   const updatedPillars = pillars.map((p) => ({
     ...p,
+    floorId: p.floorId ?? "legacy-floor",
+    stackId: p.stackId ?? `stack-${round(p.x, 3)}-${round(p.y, 3)}`,
+    baseElevation: p.baseElevation ?? 0,
     height: p.height || building.floorHeight,
     loadCapacity: pillarLoadCapacity(
       p.width,
@@ -206,7 +224,8 @@ export function recalculateStructure(
     updatedPillars,
     0.3,
     0.5,
-    building.floorHeight
+    building.floorHeight,
+    updatedPillars[0]?.floorId ?? "legacy-floor"
   );
   // Preserve engineered sizes / rebar when topology rematches.
   if (previousBeams?.length) {
@@ -219,6 +238,7 @@ export function recalculateStructure(
       if (!match) return b;
       return {
         ...b,
+        floorId: b.floorId ?? updatedPillars[0]?.floorId ?? "legacy-floor",
         width: match.width,
         depth: match.depth,
         concreteGrade: match.concreteGrade,
@@ -236,6 +256,7 @@ export function recalculateStructure(
     if (!prev) return s;
     return {
       ...s,
+      floorId: s.floorId ?? updatedPillars[0]?.floorId ?? "legacy-floor",
       thickness: prev.thickness,
       system: prev.system,
       topMesh: prev.topMesh,

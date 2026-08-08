@@ -123,15 +123,16 @@ function PanelBody({ onClose }: { onClose?: () => void }) {
   const building = useStructureStore((s) => s.building);
   const setBuilding = useStructureStore((s) => s.setBuilding);
   const activeFloor = useStructureStore((s) => s.activeFloor);
+  const floorItems = useStructureStore((s) => s.floors);
   const setActiveFloor = useStructureStore((s) => s.setActiveFloor);
-  const addFloor = useStructureStore((s) => s.addFloor);
-  const pillars = useStructureStore((s) => s.pillars);
+  const setFloorCreationOpen = useStructureStore((s) => s.setFloorCreationOpen);
   const floorPlates = useStructureStore((s) => s.floorPlates);
   const regenerateFromGrid = useStructureStore((s) => s.regenerateFromGrid);
   const stairStepCount = useStructureStore((s) => s.stairStepCount);
   const setStairStepCount = useStructureStore((s) => s.setStairStepCount);
   const { format: formatLen } = useLengthUnit();
   const plate = floorPlates.find((p) => p.floor === activeFloor);
+  const selectedFloor = floorItems.find((floor) => floor.floorNumber === activeFloor);
   const stairPreview = computeStairFromSteps(
     building.floorHeight,
     stairStepCount
@@ -311,31 +312,46 @@ function PanelBody({ onClose }: { onClose?: () => void }) {
             </h3>
             <button
               type="button"
-              onClick={() => addFloor()}
+              onClick={() => setFloorCreationOpen(true)}
+              disabled={floorItems.length >= 50}
               className="inline-flex items-center gap-1 rounded-lg bg-[#121820] px-2 py-1 text-[11px] font-semibold text-white hover:bg-[#2563EB]"
             >
               <Plus size={12} /> Add
             </button>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {Array.from({ length: building.floors }, (_, i) => i + 1).map(
-              (f) => (
+            {floorItems.map((floor) => (
                 <button
-                  key={f}
+                  key={floor.id}
                   type="button"
-                  onClick={() => setActiveFloor(f)}
+                  onClick={() => setActiveFloor(floor.id)}
                   className={cn(
                     "min-h-9 min-w-9 rounded-xl text-xs font-bold",
-                    activeFloor === f
+                    activeFloor === floor.floorNumber
                       ? "bg-[#2563EB] text-white"
                       : "bg-[#f1f5f9] text-[#64748b]"
                   )}
                 >
-                  {f}
+                  {floor.floorNumber}
                 </button>
-              )
-            )}
+            ))}
           </div>
+          {selectedFloor && (
+            <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-3 text-[11px] text-slate-600">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-slate-900">{selectedFloor.name}</span>
+                <span>F{selectedFloor.floorNumber}</span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                <span>Elevation <b>{selectedFloor.elevation.toFixed(2)} m</b></span>
+                <span>Height <b>{selectedFloor.height.toFixed(2)} m</b></span>
+                <span>Pillars <b>{selectedFloor.pillars.length}</b></span>
+                <span>Beams <b>{selectedFloor.beams.length}</b></span>
+                <span>Slabs <b>{selectedFloor.slabs.length}</b></span>
+                <span>Warnings <b className={selectedFloor.structuralWarningCount ? "text-amber-700" : "text-emerald-700"}>{selectedFloor.structuralWarningCount ?? 0}</b></span>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="space-y-2">
@@ -364,7 +380,7 @@ function PanelBody({ onClose }: { onClose?: () => void }) {
         </section>
 
         <div className="rounded-xl bg-[#f1f5f9] px-3 py-2.5 text-[11px] leading-relaxed text-[#64748b]">
-          Floor {activeFloor}: {pillars.length} pillars ·{" "}
+          Floor {activeFloor}: {selectedFloor?.pillars.length ?? 0} pillars ·{" "}
           {plate?.walls.length ?? 0} walls · {plate?.openings.length ?? 0}{" "}
           openings
         </div>

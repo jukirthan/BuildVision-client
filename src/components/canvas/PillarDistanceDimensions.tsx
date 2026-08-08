@@ -166,23 +166,34 @@ function DimensionLine({
 export default function PillarDistanceDimensions() {
   const pillars = useStructureStore((s) => s.pillars);
   const beams = useStructureStore((s) => s.beams);
+  const floors = useStructureStore((s) => s.floors);
+  const activeFloor = useStructureStore((s) => s.activeFloor);
   const selectedPillarId = useStructureStore((s) => s.selectedPillarId);
   const viewFlags = useStructureStore((s) => s.viewFlags);
   const building = useStructureStore((s) => s.building);
   const { format } = useLengthUnit();
+  const activeFloorId = floors.find((floor) => floor.floorNumber === activeFloor)?.id;
+  const floorPillars = useMemo(
+    () => pillars.filter((pillar) => pillar.floorId === activeFloorId),
+    [pillars, activeFloorId]
+  );
+  const floorBeams = useMemo(
+    () => beams.filter((beam) => beam.floorId === activeFloorId),
+    [beams, activeFloorId]
+  );
 
   const mode = viewFlags.dimensionMode ?? "selected";
   const enabled = viewFlags.showDimensions && mode !== "off";
 
   const beamPairs = useMemo(() => {
     const out: [string, string][] = [];
-    for (const b of beams) {
+    for (const b of floorBeams) {
       if (b.startPillarId && b.endPillarId) {
         out.push([b.startPillarId, b.endPillarId]);
       }
     }
     return out;
-  }, [beams]);
+  }, [floorBeams]);
 
   const pairs = useMemo(() => {
     if (!enabled) return [];
@@ -193,12 +204,12 @@ export default function PillarDistanceDimensions() {
           ? "selected"
           : "all";
     return buildPairs(
-      pillars,
+      floorPillars,
       effective,
       selectedPillarId,
       beamPairs
     );
-  }, [enabled, mode, pillars, selectedPillarId, beamPairs]);
+  }, [enabled, mode, floorPillars, selectedPillarId, beamPairs]);
 
   if (!enabled || pairs.length === 0) return null;
 

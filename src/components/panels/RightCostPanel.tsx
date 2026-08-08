@@ -20,6 +20,7 @@ function PanelBody({ onClose }: { onClose?: () => void }) {
   const beams = useStructureStore((s) => s.beams);
   const slabs = useStructureStore((s) => s.slabs);
   const pillars = useStructureStore((s) => s.pillars);
+  const floors = useStructureStore((s) => s.floors);
   const suggestions = useStructureStore((s) => s.suggestions);
   const advisor = useStructureStore((s) => s.advisor);
   const recommendations = useStructureStore((s) => s.recommendations);
@@ -134,9 +135,28 @@ function PanelBody({ onClose }: { onClose?: () => void }) {
           </section>
         )}
 
+        {(estimate.floorEstimates?.length ?? 0) > 0 && (
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-[#5b6570]">
+              Floor-level BOQ
+            </h3>
+            <div className="space-y-1 rounded-xl border border-[#e8edf2] p-2 text-[11px]">
+              {estimate.floorEstimates?.map((floor) => (
+                <div key={floor.floorId} className="flex items-center justify-between gap-2 border-b border-[#f1f5f9] py-1.5 last:border-0">
+                  <div>
+                    <p className="font-medium text-[#121820]">{floor.name}</p>
+                    <p className="text-[#94a3b8]">{floor.concreteVolumeM3} m³ · {floor.reinforcementKg} kg steel</p>
+                  </div>
+                  <span className="font-mono text-[#121820]">{formatCurrency(floor.totalCost)}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <p className="text-xs text-[#5b6570]">
-          {pillars.length} pillars · {beams.length} beams · {slabs.length} slab
-          plate · live multi-floor model.
+          {floors.length} floors · {pillars.length} pillars · {beams.length} beams · {slabs.length} slabs
+          · live floor-owned model.
         </p>
         <p className="font-mono text-[10px] text-[#94a3b8]">
           Rates: ${RATES.concretePerM3}/m³ · ${RATES.steelPerKg}/kg · $

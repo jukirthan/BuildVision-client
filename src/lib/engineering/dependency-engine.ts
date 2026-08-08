@@ -3,6 +3,7 @@ import type {
   Beam,
   BuildingConfig,
   EngineeringRecommendation,
+  Floor,
   Pillar,
   Slab,
 } from "@/types/structure";
@@ -101,8 +102,10 @@ export function runDependencyEngine(input: {
 
   // --- Graph: beam ↔ pillar ---
   let beams: Beam[] = input.beams.map((b) => {
-    const startPillarId = nearestPillarId(b.startX, b.startY, input.pillars);
-    const endPillarId = nearestPillarId(b.endX, b.endY, input.pillars);
+    const startPillarId =
+      b.startPillarId || nearestPillarId(b.startX, b.startY, input.pillars) || "";
+    const endPillarId =
+      b.endPillarId || nearestPillarId(b.endX, b.endY, input.pillars) || "";
     return { ...b, startPillarId, endPillarId, supportedSlabIds: slab ? [slab.id] : [] };
   });
 
@@ -452,6 +455,189 @@ export function runDependencyEngine(input: {
     beams,
     slabs,
     building: nextBuilding,
+    advisor,
+    recommendations,
+  };
+}
+
+export type MultiFloorEngineResult = {
+  floors: Floor[];
+  building: BuildingConfig;
+  advisor: AdvisorMessage[];
+  recommendations: EngineeringRecommendation[];
+};
+
+/**
+ * Runs the fast TypeScript checks independently for every storey and then
+ * validates the vertical load path. No member from one floor is passed into
+ * another floor's local dependency graph.
+ */
+export function runMultiFloorDependencyEngine(input: {
+  building: BuildingConfig;
+  floors: Floor[];
+}): MultiFloorEngineResult {
+  let building = input.building;
+  const advisor: AdvisorMessage[] = [];
+  const recommendations: EngineeringRecommendation[] = [];
+  const floors = input.floors
+    .slice()
+    .sort((a, b) => a.floorNumber - b.floorNumber)
+    .map((floor) => {
+      const result = runDependencyEngine({
+        building,
+        pillars: floor.pillars.map((pillar) => ({
+          ...pillar,
+          floorId: floor.id,
+          baseElevation: floor.elevation,
+          height: pillar.height || floor.height,
+        })),
+        beams: floor.beams.map((beam) => ({ ...beam, floorId: floor.id })),
+        slabs: floor.slabs.map((slab) => ({ ...slab, floorId: floor.id })),
+        autoUpdateFooting: false,
+        // A manually selected floor member must not be resized as a side
+        // effect of editing a supporting column.
+        autoAdjustBeams: false,
+      });
+      building = result.building;
+      advisor.push(...result.advisor);
+      recommendations.push(...result.recommendations);
+      const structuralWarningCount = result.advisor.filter(
+        (message) => message.severity === "warning" || message.severity === "critical"
+      ).length;
+      return {
+        ...floor,
+        pillars: result.pillars.map((pillar) => ({
+          ...pillar,
+          floorId: floor.id,
+          baseElevation: floor.elevation,
+          height: pillar.height || floor.height,
+          stackId:
+            pillar.stackId || `stack-${pillar.x.toFixed(3)}-${pillar.y.toFixed(3)}`,
+        })),
+        beams: result.beams.map((beam) => ({ ...beam, floorId: floor.id })),
+        slabs: result.slabs.map((slab) => ({ ...slab, floorId: floor.id })),
+        structuralWarningCount,
+      };
+    });
+
+  const stacks = new Map<string, Pillar[]>();
+  for (const floor of floors) {
+    for (const pillar of floor.pillars) {
+      const stackId = pillar.stackId || `stack-${pillar.x.toFixed(3)}-${pillar.y.toFixed(3)}`;
+      const stack = stacks.get(stackId) ?? [];
+      stack.push({ ...pillar, stackId });
+      stacks.set(stackId, stack);
+    }
+  }
+
+  stacks.forEach((segments, stackId) => {
+    const ordered = segments.sort((a, b) => a.baseElevation - b.baseElevation);
+    for (let index = 1; index < ordered.length; index += 1) {
+      const lower = ordered[index - 1];
+      const upper = ordered[index];
+      const offset = Math.hypot(upper.x - lower.x, upper.y - lower.y);
+      const lowerSection = Math.min(lower.width, lower.depth);
+      const upperSection = Math.min(upper.width, upper.depth);
+      const reduction = lowerSection > 0 ? 1 - upperSection / lowerSection : 0;
+      const sameFloorWarning = (message: AdvisorMessage) => {
+        advisor.push({ ...message, memberId: upper.id });
+      };
+
+      if (offset > 0.08) {
+        sameFloorWarning({
+          id: uid("adv"),
+          severity:
+            upper.transferCondition === "transfer_beam" ||
+            upper.transferCondition === "transfer_slab"
+              ? "warning"
+              : "critical",
+          title: `${upper.name}: vertical load path is offset`,
+          body: `${upper.name} is ${offset.toFixed(3)} m away from ${lower.name} in stack ${stackId}. A transfer beam or transfer slab must be explicitly identified; no connection was invented.`,
+          memberKind: "column",
+          suggestedAction: "Align the segment or set an explicit transfer condition and verify it with a structural engineer.",
+          timestamp: Date.now(),
+        });
+      } else if (offset > 0.02) {
+        sameFloorWarning({
+          id: uid("adv"),
+          severity: "warning",
+          title: `${upper.name}: centre-line alignment review`,
+          body: `Column centre lines differ by ${offset.toFixed(3)} m from the segment below.`,
+          memberKind: "column",
+          timestamp: Date.now(),
+        });
+      }
+
+      if (upperSection > lowerSection + 0.01) {
+        sameFloorWarning({
+          id: uid("adv"),
+          severity: "warning",
+          title: `${upper.name}: upper section exceeds support`,
+          body: `Upper section ${Math.round(upperSection * 1000)} mm is larger than lower supporting section ${Math.round(lowerSection * 1000)} mm. Check bearing and load transfer.`,
+          memberKind: "column",
+          timestamp: Date.now(),
+        });
+      } else if (reduction > 0.35) {
+        sameFloorWarning({
+          id: uid("adv"),
+          severity: "warning",
+          title: `${upper.name}: sudden section reduction`,
+          body: `Section reduces by ${(reduction * 100).toFixed(0)}% from the storey below. Review confinement, eccentricity and load transfer.`,
+          memberKind: "column",
+          timestamp: Date.now(),
+        });
+      }
+    }
+  });
+
+  // A matching centre line on adjacent floors is expected to use the same
+  // stack ID. Flag this explicitly rather than silently treating two
+  // independently-created segments as connected.
+  for (let floorIndex = 1; floorIndex < floors.length; floorIndex += 1) {
+    const lowerFloor = floors[floorIndex - 1];
+    const upperFloor = floors[floorIndex];
+    for (const upper of upperFloor.pillars) {
+      const lower = lowerFloor.pillars.reduce<Pillar | null>((nearest, candidate) => {
+        const candidateDistance = Math.hypot(upper.x - candidate.x, upper.y - candidate.y);
+        if (!nearest) return candidate;
+        return candidateDistance < Math.hypot(upper.x - nearest.x, upper.y - nearest.y)
+          ? candidate
+          : nearest;
+      }, null);
+      if (!lower) continue;
+      const offset = Math.hypot(upper.x - lower.x, upper.y - lower.y);
+      if (offset <= 0.02 && upper.stackId !== lower.stackId) {
+        advisor.push({
+          id: uid("adv"),
+          severity: "warning",
+          memberId: upper.id,
+          memberKind: "column",
+          title: `${upper.name}: aligned segment has a different stack ID`,
+          body: `This segment is aligned with ${lower.name} on ${lowerFloor.name}, but belongs to ${upper.stackId || "no stack"}. Confirm whether the column is continuous or intentionally discontinued with an explicit transfer condition.`,
+          suggestedAction: "Assign the same stack ID for a continuous column, or identify a transfer beam/slab.",
+          timestamp: Date.now(),
+        });
+      }
+    }
+  }
+
+  const warningsByFloor = new Map<string, number>();
+  for (const message of advisor) {
+    if (!message.memberId) continue;
+    const owner = floors.find((floor) =>
+      floor.pillars.some((pillar) => pillar.id === message.memberId) ||
+      floor.beams.some((beam) => beam.id === message.memberId) ||
+      floor.slabs.some((slab) => slab.id === message.memberId)
+    );
+    if (owner) warningsByFloor.set(owner.id, (warningsByFloor.get(owner.id) ?? 0) + 1);
+  }
+
+  return {
+    building,
+    floors: floors.map((floor) => ({
+      ...floor,
+      structuralWarningCount: warningsByFloor.get(floor.id) ?? floor.structuralWarningCount ?? 0,
+    })),
     advisor,
     recommendations,
   };

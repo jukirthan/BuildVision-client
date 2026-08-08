@@ -333,6 +333,21 @@ export const api = {
       body: JSON.stringify({ snapshot, version }),
     }),
 
+  getBuildingStructure: <T>(buildingId: number) =>
+    request<StructureDocument<T>>(`/api/v1/buildings/${buildingId}/structure`),
+
+  saveBuildingStructure: <T>(buildingId: number, structure: T, version: number) =>
+    request<StructureDocument<T>>(`/api/v1/buildings/${buildingId}/structure`, {
+      method: "PUT",
+      body: JSON.stringify({ structure, version }),
+    }),
+
+  analyzeBuildingStructure: <T>(buildingId: number, runAnalysis = true) =>
+    request<T>(`/api/v1/buildings/${buildingId}/structure/analyze`, {
+      method: "POST",
+      body: JSON.stringify({ runAnalysis }),
+    }),
+
   // ── Admin ─────────────────────────────────────────────────────────
   adminOverview: () => request<AdminOverview>("/api/admin/overview"),
 
@@ -432,6 +447,13 @@ export interface BuildingDto {
 export interface DesignDocument<T> {
   snapshot: T | null;
   version: number;
+}
+
+export interface StructureDocument<T> {
+  building: unknown;
+  floors: T[];
+  version: number;
+  snapshot?: unknown;
 }
 
 export interface ProjectDto {

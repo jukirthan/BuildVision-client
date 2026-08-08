@@ -5,13 +5,69 @@ import { useSearchParams } from "next/navigation";
 import PlannerShell from "@/components/planner/PlannerShell";
 import { api } from "@/lib/api";
 import { useStructureStore, type PersistedDesign } from "@/store/useStructureStore";
+import type { BuildingConfig } from "@/types/structure";
 
 export type SaveStatus = "saving" | "saved" | "offline" | "failed" | "local";
 
 function currentDesign(): PersistedDesign {
   const s = useStructureStore.getState();
-  return { schemaVersion: 1, building: s.building, activeFloor: s.activeFloor,
-    pillars: s.pillars, beams: s.beams, slabs: s.slabs, floorPlates: s.floorPlates };
+  return {
+    schemaVersion: 2,
+    building: s.building,
+    floors: s.floors,
+    activeFloorId: s.activeFloorId,
+    activeFloor: s.activeFloor,
+    pillars: s.pillars,
+    beams: s.beams,
+    slabs: s.slabs,
+    floorPlates: s.floorPlates,
+  };
+}
+
+function designFromStructure(
+  structure: { building: unknown; floors: unknown[]; version: number; snapshot?: unknown },
+  fallback: { name: string; width: number; length: number; floors: number; floorHeight: number }
+): PersistedDesign | null {
+  const storedSnapshot = structure.snapshot;
+  if (
+    storedSnapshot &&
+    typeof storedSnapshot === "object" &&
+    "floors" in storedSnapshot &&
+    Array.isArray((storedSnapshot as { floors?: unknown[] }).floors)
+  ) {
+    const snapshot = storedSnapshot as PersistedDesign;
+    if (snapshot.schemaVersion === 1 || snapshot.schemaVersion === 2) return snapshot;
+  }
+  if (!structure.floors.length) return null;
+  const hasMembers = structure.floors.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const floor = item as { pillars?: unknown[]; beams?: unknown[]; slabs?: unknown[] };
+    return Boolean(floor.pillars?.length || floor.beams?.length || floor.slabs?.length);
+  });
+  // A newly-created backend building has floor rows but no design yet. Let
+  // the normal metadata hydration create its initial editable layout.
+  if (!hasMembers) return null;
+  const serverBuilding =
+    structure.building && typeof structure.building === "object"
+      ? (structure.building as Record<string, unknown>)
+      : {};
+  const building: BuildingConfig = {
+    name: typeof serverBuilding.name === "string" ? serverBuilding.name : fallback.name,
+    width: typeof serverBuilding.width === "number" ? serverBuilding.width : fallback.width,
+    length: typeof serverBuilding.length === "number" ? serverBuilding.length : fallback.length,
+    floors: structure.floors.length,
+    floorHeight: fallback.floorHeight,
+    showFoundation: true,
+    showAllFloors: false,
+  };
+  const floors = structure.floors as PersistedDesign["floors"];
+  return {
+    schemaVersion: 2,
+    building,
+    floors,
+    activeFloorId: floors[0]?.id,
+    activeFloor: floors[0]?.floorNumber ?? 1,
+  };
 }
 
 function PlannerLoader() {
@@ -40,24 +96,28 @@ function PlannerLoader() {
             (buildingId > 0
               ? list.data.find((b) => b.id === buildingId)
               : null) || list.data[0];
-          const design = await api.getBuildingDesign<PersistedDesign>(match.id);
+          const structure = await api.getBuildingStructure<PersistedDesign["floors"][number]>(match.id);
           if (cancelled) return;
-          if (design.success && design.data?.snapshot?.schemaVersion === 1) {
-            hydrateFromDesign(design.data.snapshot);
-            versionRef.current = design.data.version;
-          } else {
-            hydrateFromMeta({
+          const fallback = {
             name: match.name || nameParam || "Structure",
             width: match.width || 30,
             length: match.length || 20,
             floors: match.total_floors || 3,
             floorHeight: 3.5,
-            });
-            versionRef.current = design.data?.version || 0;
+          };
+          const restored = structure.success && structure.data
+            ? designFromStructure(structure.data, fallback)
+            : null;
+          if (restored) {
+            hydrateFromDesign(restored);
+            versionRef.current = structure.data?.version || 0;
+          } else {
+            hydrateFromMeta(fallback);
+            versionRef.current = structure.data?.version || 0;
           }
           lastSavedRef.current = JSON.stringify(currentDesign());
           setActiveBuildingId(match.id);
-          setSaveStatus(design.success ? "saved" : "offline");
+          setSaveStatus(structure.success ? "saved" : "offline");
           setTitle(match.name || nameParam || "Structure");
           setReady(true);
           return;
@@ -103,7 +163,7 @@ function PlannerLoader() {
       timer = setTimeout(async () => {
         const snapshot = currentDesign();
         const payload = JSON.stringify(snapshot);
-        const result = await api.saveBuildingDesign(activeBuildingId, snapshot, versionRef.current);
+        const result = await api.saveBuildingStructure(activeBuildingId, snapshot, versionRef.current);
         if (disposed) return;
         if (result.success && result.data) {
           versionRef.current = result.data.version;

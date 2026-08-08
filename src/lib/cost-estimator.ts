@@ -2,6 +2,8 @@ import type {
   Beam,
   BoqLine,
   BuildingConfig,
+  Floor,
+  FloorCostEstimate,
   FloorPlate,
   MaterialEstimate,
   Pillar,
@@ -63,7 +65,13 @@ export function estimateMaterials(
   floors = 1,
   building?: BuildingConfig
 ): MaterialEstimate {
-  const nFloors = Math.max(floors, 1);
+  // A floor-owned collection already contains every physical member. Only
+  // legacy, unscoped snapshots are multiplied for backward compatibility.
+  const hasFloorScopedMembers =
+    pillars.some((item) => item.floorId && item.floorId !== "legacy-floor") ||
+    beams.some((item) => item.floorId && item.floorId !== "legacy-floor") ||
+    slabs.some((item) => item.floorId && item.floorId !== "legacy-floor");
+  const nFloors = hasFloorScopedMembers ? 1 : Math.max(floors, 1);
   let concreteColumns = 0;
   let concreteBeams = 0;
   let concreteSlabs = 0;
@@ -78,7 +86,7 @@ export function estimateMaterials(
   let columnHeightM = 0;
 
   for (const p of pillars) {
-    const H = p.height * nFloors;
+    const H = p.height * (hasFloorScopedMembers ? 1 : nFloors);
     columnHeightM += H;
     const isCirc = p.shape === "circular";
     const diam = Math.max(p.width, p.depth);
@@ -107,7 +115,7 @@ export function estimateMaterials(
   }
 
   for (const b of beams) {
-    const L = b.length * nFloors;
+    const L = b.length * (hasFloorScopedMembers ? 1 : nFloors);
     beamLengthM += L;
     concreteBeams += b.width * b.depth * L;
     formwork += (2 * b.depth + b.width) * L;
@@ -132,7 +140,7 @@ export function estimateMaterials(
 
   let slabAreaM2 = 0;
   for (const s of slabs) {
-    const area = s.area * nFloors;
+    const area = s.area * (hasFloorScopedMembers ? 1 : nFloors);
     slabAreaM2 += area;
     concreteSlabs += s.thickness * area;
     formwork += area;
@@ -295,9 +303,9 @@ export function estimateMaterials(
     wallsCost: round(wallsCost, 2),
     roofCost: round(roofCost, 2),
     totalCost: round(totalCost, 2),
-    pillarCount: pillars.length * nFloors,
-    beamCount: beams.length * nFloors,
-    slabCount: slabs.length * nFloors,
+    pillarCount: hasFloorScopedMembers ? pillars.length : pillars.length * nFloors,
+    beamCount: hasFloorScopedMembers ? beams.length : beams.length * nFloors,
+    slabCount: hasFloorScopedMembers ? slabs.length : slabs.length * nFloors,
     wallCount,
     doorCount,
     windowCount,
@@ -313,6 +321,59 @@ export function estimateMaterials(
     brickCount,
     boq,
   };
+}
+
+export function estimateMultiFloorMaterials(
+  floors: Floor[],
+  building: BuildingConfig
+): MaterialEstimate {
+  const flattened = floors.flatMap((floor) => ({
+    floor,
+    plate: {
+      floor: floor.floorNumber,
+      floorId: floor.id,
+      walls: floor.walls,
+      openings: floor.openings,
+      stairs: floor.stairs,
+    },
+  }));
+  const estimate = estimateMaterials(
+    floors.flatMap((item) => item.pillars),
+    floors.flatMap((item) => item.beams),
+    floors.flatMap((item) => item.slabs),
+    flattened.map((item) => item.plate),
+    1,
+    building
+  );
+  const floorEstimates: FloorCostEstimate[] = floors.map((floor) => {
+    const floorOnlyBuilding: BuildingConfig = {
+      ...building,
+      foundation: undefined,
+      roof: undefined,
+      roofType: "flat",
+    };
+    const perFloor = estimateMaterials(
+      floor.pillars,
+      floor.beams,
+      floor.slabs,
+      [flattened.find((item) => item.floor.id === floor.id)!.plate],
+      1,
+      floorOnlyBuilding
+    );
+    return {
+      floorId: floor.id,
+      floorNumber: floor.floorNumber,
+      name: floor.name,
+      concreteVolumeM3: perFloor.concreteVolumeM3,
+      reinforcementKg: perFloor.steelWeightKg,
+      formworkM2: perFloor.formworkM2,
+      pillarCost: perFloor.columnsCost,
+      beamCost: perFloor.beamsCost,
+      slabCost: perFloor.slabsCost,
+      totalCost: perFloor.totalCost,
+    };
+  });
+  return { ...estimate, floorEstimates };
 }
 
 export function formatCurrency(amount: number, currency = "USD") {

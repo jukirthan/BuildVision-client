@@ -3,21 +3,37 @@
 import { create } from "zustand";
 import { generateMemberDesignOptions } from "@/lib/ai-design-options";
 import { generateLayoutSuggestions } from "@/lib/ai-recommendations";
-import { estimateMaterials } from "@/lib/cost-estimator";
+import { estimateMaterials, estimateMultiFloorMaterials } from "@/lib/cost-estimator";
 import {
   applyRecommendation,
+  runMultiFloorDependencyEngine,
   runDependencyEngine,
 } from "@/lib/engineering/dependency-engine";
+import {
+  buildEmptyFloorMembers,
+  cloneFloor,
+  createFloorsFromLegacy,
+  createInitialFloors,
+  flattenFloors,
+  floorById,
+  floorByNumber,
+  floorPlatesFromFloors,
+  makeFloor,
+  recalculateFloorElevations,
+  updateAncillaryFromPlates,
+  type FloorCreationMode,
+} from "@/lib/floor-structure";
 import {
   computeStairFromSteps,
   defaultStepCount,
 } from "@/lib/stair-geometry";
 import {
-  createInitialStructure,
   defaultBuilding,
   emptyFloorPlate,
   generatePerimeterWalls,
   generatePillarGrid,
+  generateBeamsFromPillars,
+  beamLoadBearing,
   pillarLoadCapacity,
   recalculateStructure,
   uid,
@@ -29,6 +45,8 @@ import type {
   DesignCodes,
   DesignOption,
   EditTool,
+  EditScope,
+  Floor,
   EngineeringRecommendation,
   FloorPlate,
   FoundationConfig,
@@ -47,6 +65,8 @@ import type {
 
 type StructureSnapshot = {
   building: BuildingConfig;
+  floors: Floor[];
+  activeFloorId: string;
   activeFloor: number;
   pillars: Pillar[];
   beams: ReturnType<typeof recalculateStructure>["beams"];
@@ -57,17 +77,23 @@ type StructureSnapshot = {
 };
 
 export type PersistedDesign = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   building: BuildingConfig;
+  floors: Floor[];
+  activeFloorId?: string;
   activeFloor: number;
-  pillars: Pillar[];
-  beams: Beam[];
-  slabs: Slab[];
-  floorPlates: FloorPlate[];
+  /** Legacy fields remain optional for migrating schemaVersion 1 snapshots. */
+  pillars?: Pillar[];
+  beams?: Beam[];
+  slabs?: Slab[];
+  floorPlates?: FloorPlate[];
 };
 
 interface StructureStore {
   building: BuildingConfig;
+  /** Canonical floor-owned state. Flat arrays below are compatibility DTOs. */
+  floors: Floor[];
+  activeFloorId: string;
   activeFloor: number;
   pillars: Pillar[];
   beams: ReturnType<typeof recalculateStructure>["beams"];
@@ -89,6 +115,7 @@ interface StructureStore {
   advisor: AdvisorMessage[];
   recommendations: EngineeringRecommendation[];
   inspectorOpen: boolean;
+  floorCreationOpen: boolean;
   tool: EditTool;
   wallDraftStart: { x: number; y: number } | null;
   /** Steps used when placing a new stair (rise = floorHeight / steps). */
@@ -121,9 +148,13 @@ interface StructureStore {
   undo: () => void;
   redo: () => void;
   setBuilding: (patch: Partial<BuildingConfig>) => void;
-  setActiveFloor: (floor: number) => void;
-  addFloor: () => void;
-  removeFloor: (floor?: number) => void;
+  setActiveFloor: (floorId: string | number) => void;
+  addFloor: (options?: {
+    mode?: FloorCreationMode;
+    sourceFloorId?: string;
+  }) => void;
+  duplicateFloor: (sourceFloorId: string) => void;
+  removeFloor: (floorId?: string | number) => void;
   setTool: (tool: EditTool) => void;
   setStairStepCount: (n: number) => void;
   setViewFlags: (patch: Partial<ViewFlags>) => void;
@@ -144,9 +175,23 @@ interface StructureStore {
   clearMultiSelect: () => void;
   moveSelectedGroupBy: (dx: number, dy: number) => void;
   setInspectorOpen: (open: boolean) => void;
-  updatePillar: (id: string, patch: Partial<Pillar>) => void;
-  updateBeam: (id: string, patch: Partial<Beam>) => void;
-  updateSlab: (id: string, patch: Partial<Slab>) => void;
+  setFloorCreationOpen: (open: boolean) => void;
+  updatePillar: (
+    floorIdOrMemberId: string,
+    pillarIdOrPatch: string | Partial<Pillar>,
+    patch?: Partial<Pillar>,
+    scope?: EditScope
+  ) => void;
+  updateBeam: (
+    floorIdOrMemberId: string,
+    beamIdOrPatch: string | Partial<Beam>,
+    patch?: Partial<Beam>
+  ) => void;
+  updateSlab: (
+    floorIdOrMemberId: string,
+    slabIdOrPatch: string | Partial<Slab>,
+    patch?: Partial<Slab>
+  ) => void;
   updateWall: (id: string, patch: Partial<Wall>) => void;
   updateStair: (id: string, patch: Partial<Stair>) => void;
   updateOpening: (id: string, patch: Partial<Opening>) => void;
@@ -157,12 +202,19 @@ interface StructureStore {
   applyEngineeringRecommendation: (rec: EngineeringRecommendation) => void;
   applyDesignOption: (opt: DesignOption) => void;
   refreshDesignOptions: () => void;
-  movePillar: (id: string, x: number, y: number) => void;
+  movePillar: (
+    floorIdOrMemberId: string,
+    pillarIdOrX: string | number,
+    xOrY: number,
+    y?: number
+  ) => void;
   moveWallBy: (id: string, dx: number, dy: number) => void;
   moveStair: (id: string, x: number, y: number) => void;
   nudgeSelected: (dx: number, dy: number) => void;
-  addPillar: (x: number, y: number) => void;
-  removePillar: (id: string) => void;
+  addPillar: (floorIdOrX: string | number, xOrY: number, y?: number) => void;
+  removePillar: (floorIdOrMemberId: string, pillarId?: string) => void;
+  addBeam: (floorId: string, startPillarId: string, endPillarId: string) => void;
+  removeBeam: (floorId: string, beamId: string) => void;
   addWall: (startX: number, startY: number, endX: number, endY: number) => void;
   setWallDraftStart: (p: { x: number; y: number } | null) => void;
   removeWall: (id: string) => void;
@@ -179,12 +231,15 @@ interface StructureStore {
   setLeftOpen: (open: boolean) => void;
   setRightOpen: (open: boolean) => void;
   regenerateFromGrid: (cols: number, rows: number, size?: number) => void;
+  updateFloor: (floorId: string, patch: Partial<Pick<Floor, "name" | "height">>) => void;
 }
 
 const MAX_HISTORY = 40;
 
 function cloneSnapshot(state: {
   building: BuildingConfig;
+  floors: Floor[];
+  activeFloorId: string;
   activeFloor: number;
   pillars: Pillar[];
   beams: ReturnType<typeof recalculateStructure>["beams"];
@@ -195,6 +250,8 @@ function cloneSnapshot(state: {
 }): StructureSnapshot {
   return structuredClone({
     building: state.building,
+    floors: state.floors,
+    activeFloorId: state.activeFloorId,
     activeFloor: state.activeFloor,
     pillars: state.pillars,
     beams: state.beams,
@@ -260,6 +317,7 @@ const defaultViewFlags = (): ViewFlags => ({
   gridSizeM: 0.25,
   gizmoMode: "translate",
   isolateSelection: false,
+  floorVisibility: "active_with_lower_ghosted",
 });
 
 /** Debounced live cost — keeps inspector edits from thrashing the main thread. */
@@ -268,6 +326,8 @@ let estimateTimer: ReturnType<typeof setTimeout> | null = null;
 let structureDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 type RebuildGet = () => {
+  floors: Floor[];
+  activeFloorId: string;
   beams: Beam[];
   slabs: Slab[];
   selectedPillarId: string | null;
@@ -283,14 +343,16 @@ function scheduleEstimate(get: RebuildGet, set: (partial: object) => void) {
   estimateTimer = setTimeout(() => {
     const s = get();
     set({
-      estimate: estimateMaterials(
-        s.pillars,
-        s.beams,
-        s.slabs,
-        s.floorPlates,
-        s.building.floors,
-        s.building
-      ),
+      estimate: s.floors.length
+        ? estimateMultiFloorMaterials(s.floors, s.building)
+        : estimateMaterials(
+            s.pillars,
+            s.beams,
+            s.slabs,
+            s.floorPlates,
+            s.building.floors,
+            s.building
+          ),
     });
   }, 220);
 }
@@ -305,6 +367,23 @@ function commitStructure(
   options?: { footprintChanged?: boolean }
 ) {
   set({ ...rebuild(get, building, pillars, floorPlates, options), ...extra });
+  scheduleEstimate(get, set);
+}
+
+function commitFloors(
+  get: RebuildGet,
+  set: (partial: object) => void,
+  building: BuildingConfig,
+  floors: Floor[],
+  extra: Record<string, unknown> = {}
+) {
+  const rebuilt = rebuildFloors(
+    get,
+    building,
+    floors,
+    floorPlatesFromFloors(floors)
+  );
+  set({ ...rebuilt, ...extra });
   scheduleEstimate(get, set);
 }
 
@@ -358,6 +437,56 @@ function syncFloorPlates(
   return next;
 }
 
+function rebuildFloors(
+  get: RebuildGet,
+  building: BuildingConfig,
+  inputFloors: Floor[],
+  floorPlates: FloorPlate[],
+  options?: { footprintChanged?: boolean }
+) {
+  const normalizedFloors = recalculateFloorElevations(inputFloors);
+  const plates = syncFloorPlates(
+    building,
+    floorPlates.length ? floorPlates : floorPlatesFromFloors(normalizedFloors),
+    options?.footprintChanged ?? false
+  );
+  const withAncillary = updateAncillaryFromPlates(normalizedFloors, plates);
+  const engineered = runMultiFloorDependencyEngine({
+    building,
+    floors: withAncillary,
+  });
+  const floors = recalculateFloorElevations(engineered.floors);
+  const flat = flattenFloors(floors);
+  const selectedPillar = flat.pillars.find(
+    (pillar) => pillar.id === get().selectedPillarId
+  );
+  const selectedBeam = flat.beams.find(
+    (beam) => beam.id === get().selectedBeamId
+  );
+  const selectedSlab = flat.slabs.find(
+    (slab) => slab.id === get().selectedSlabId
+  );
+  return {
+    building: engineered.building,
+    floors,
+    pillars: flat.pillars,
+    beams: flat.beams,
+    slabs: flat.slabs,
+    floorPlates: floorPlatesFromFloors(floors),
+    estimate: estimateMultiFloorMaterials(floors, engineered.building),
+    suggestions: generateLayoutSuggestions(engineered.building),
+    designOptions: generateMemberDesignOptions({
+      pillar: selectedPillar ?? null,
+      beam: selectedBeam ?? null,
+      slab: selectedPillar || selectedBeam ? null : selectedSlab ?? null,
+      pillars: flat.pillars,
+      building: engineered.building,
+    }),
+    advisor: engineered.advisor,
+    recommendations: engineered.recommendations,
+  };
+}
+
 function rebuild(
   get: RebuildGet,
   building: BuildingConfig,
@@ -365,6 +494,9 @@ function rebuild(
   floorPlates: FloorPlate[],
   options?: { footprintChanged?: boolean }
 ) {
+  if (get().floors.length) {
+    return rebuildFloors(get, building, get().floors, floorPlates, options);
+  }
   const prev = get();
   const { pillars: p0, beams: b0, slabs: s0 } = recalculateStructure(
     building,
@@ -421,6 +553,8 @@ function clamp(building: BuildingConfig, x: number, y: number) {
 
 export const useStructureStore = create<StructureStore>((set, get) => ({
   building: defaultBuilding(),
+  floors: [],
+  activeFloorId: "",
   activeFloor: 1,
   pillars: [],
   beams: [],
@@ -440,6 +574,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
   advisor: [],
   recommendations: [],
   inspectorOpen: false,
+  floorCreationOpen: false,
   tool: "select",
   wallDraftStart: null,
   stairStepCount: defaultStepCount(3.5),
@@ -509,52 +644,41 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
 
   initDemo: () => {
     const building = defaultBuilding();
-    const { pillars, beams, slabs } = createInitialStructure();
-    const floorPlates = Array.from({ length: building.floors }, (_, i) => {
-      const floor = i + 1;
-      const walls = generatePerimeterWalls(building, floor);
-      const openings: Opening[] = [];
-      if (walls[0]) {
-        openings.push({
-          id: uid("o"),
-          name: `D${floor}-1`,
-          type: "door",
-          wallId: walls[0].id,
-          t: 0.5,
-          width: 1.0,
-          height: 2.1,
-          sillHeight: 0,
-          floor,
-        });
-      }
-      if (walls[1]) {
-        openings.push({
-          id: uid("o"),
-          name: `Win${floor}-1`,
-          type: "window",
-          wallId: walls[1].id,
-          t: 0.35,
-          width: 1.2,
-          height: 1.2,
-          sillHeight: 0.9,
-          floor,
-        });
-      }
+    let floors = createInitialFloors(building);
+    floors = floors.map((floor) => {
+      const walls = generatePerimeterWalls(building, floor.floorNumber).map(
+        (wall) => ({ ...wall, floor: floor.floorNumber })
+      );
+      const openings: Opening[] = walls[0]
+        ? [
+            {
+              id: uid("o"),
+              name: `D${floor.floorNumber}-1`,
+              type: "door",
+              wallId: walls[0].id,
+              t: 0.5,
+              width: 1.0,
+              height: 2.1,
+              sillHeight: 0,
+              floor: floor.floorNumber,
+            },
+          ]
+        : [];
       const stairGeo = computeStairFromSteps(
-        building.floorHeight,
-        defaultStepCount(building.floorHeight)
+        floor.height,
+        defaultStepCount(floor.height)
       );
       const stairs: Stair[] =
-        floor < building.floors
+        floor.floorNumber < building.floors
           ? [
               {
                 id: uid("st"),
-                name: `Stair-${floor}`,
+                name: `Stair-${floor.floorNumber}`,
                 x: building.width - 3,
                 y: building.length - 4,
                 width: 1.2,
                 depth: stairGeo.depthM,
-                floor,
+                floor: floor.floorNumber,
                 stairType: "straight",
                 stepCount: stairGeo.stepCount,
                 riseMm: stairGeo.riseMm,
@@ -564,32 +688,29 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
               },
             ]
           : [];
-      return { floor, walls, openings, stairs };
+      return { ...floor, walls, openings, stairs };
     });
+    floors = runMultiFloorDependencyEngine({ building, floors }).floors;
+    const flat = flattenFloors(floors);
 
     set({
       building,
-      pillars,
-      beams,
-      slabs,
-      floorPlates,
-      estimate: estimateMaterials(
-        pillars,
-        beams,
-        slabs,
-        floorPlates,
-        building.floors,
-        building
-      ),
+      floors,
+      activeFloorId: floors[0]?.id ?? "",
+      pillars: flat.pillars,
+      beams: flat.beams,
+      slabs: flat.slabs,
+      floorPlates: floorPlatesFromFloors(floors),
+      estimate: estimateMultiFloorMaterials(floors, building),
       suggestions: generateLayoutSuggestions(building),
       designOptions: generateMemberDesignOptions({
-        pillar: pillars[0] ?? null,
+        pillar: flat.pillars[0] ?? null,
         beam: null,
         slab: null,
-        pillars,
+        pillars: flat.pillars,
         building,
       }),
-      selectedPillarId: pillars[0]?.id ?? null,
+      selectedPillarId: flat.pillars[0]?.id ?? null,
       activeFloor: 1,
       tool: "select",
       cutaway: true,
@@ -606,37 +727,32 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
       name: meta.name || defaultBuilding().name,
       width: meta.width ?? 30,
       length: meta.length ?? 20,
-      floors: Math.min(20, Math.max(1, meta.floors ?? 3)),
+      floors: Math.min(50, Math.max(1, meta.floors ?? 3)),
       floorHeight: meta.floorHeight ?? 3.5,
     };
-    const pillars = generatePillarGrid(building, 4, 3, 0.4, 0.4);
-    const { beams, slabs } = recalculateStructure(building, pillars);
-    const floorPlates = Array.from({ length: building.floors }, (_, i) =>
-      emptyFloorPlate(i + 1, building)
-    );
+    const floors = runMultiFloorDependencyEngine({
+      building,
+      floors: createInitialFloors(building),
+    }).floors;
+    const flat = flattenFloors(floors);
     set({
       building,
-      pillars,
-      beams,
-      slabs,
-      floorPlates,
-      estimate: estimateMaterials(
-        pillars,
-        beams,
-        slabs,
-        floorPlates,
-        building.floors,
-        building
-      ),
+      floors,
+      activeFloorId: floors[0]?.id ?? "",
+      pillars: flat.pillars,
+      beams: flat.beams,
+      slabs: flat.slabs,
+      floorPlates: floorPlatesFromFloors(floors),
+      estimate: estimateMultiFloorMaterials(floors, building),
       suggestions: generateLayoutSuggestions(building),
       designOptions: generateMemberDesignOptions({
-        pillar: pillars[0] ?? null,
+        pillar: flat.pillars[0] ?? null,
         beam: null,
         slab: null,
-        pillars,
+        pillars: flat.pillars,
         building,
       }),
-      selectedPillarId: pillars[0]?.id ?? null,
+      selectedPillarId: flat.pillars[0]?.id ?? null,
       activeFloor: 1,
       tool: "select",
       hydrated: true,
@@ -648,25 +764,31 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
 
   hydrateFromDesign: (design) => {
     const building = structuredClone(design.building);
-    const pillars = structuredClone(design.pillars);
-    const beams = structuredClone(design.beams);
-    const slabs = structuredClone(design.slabs);
-    const floorPlates = structuredClone(design.floorPlates);
+    const floors = design.floors?.length
+      ? recalculateFloorElevations(structuredClone(design.floors))
+      : createFloorsFromLegacy(
+          building,
+          structuredClone(design.pillars ?? []),
+          structuredClone(design.beams ?? []),
+          structuredClone(design.slabs ?? []),
+          structuredClone(design.floorPlates ?? [])
+        );
+    const flat = flattenFloors(floors);
+    const requestedFloorId = design.activeFloorId;
+    const active =
+      (requestedFloorId && floorById(floors, requestedFloorId)) ||
+      floorByNumber(floors, design.activeFloor || 1) ||
+      floors[0];
     set({
       building,
-      pillars,
-      beams,
-      slabs,
-      floorPlates,
-      activeFloor: Math.min(Math.max(design.activeFloor || 1, 1), building.floors),
-      estimate: estimateMaterials(
-        pillars,
-        beams,
-        slabs,
-        floorPlates,
-        building.floors,
-        building
-      ),
+      floors,
+      activeFloorId: active?.id ?? "",
+      activeFloor: active?.floorNumber ?? 1,
+      pillars: flat.pillars,
+      beams: flat.beams,
+      slabs: flat.slabs,
+      floorPlates: floorPlatesFromFloors(floors),
+      estimate: estimateMultiFloorMaterials(floors, building),
       suggestions: generateLayoutSuggestions(building),
       designOptions: [],
       selectedPillarId: null,
@@ -699,7 +821,7 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     const prev = get().building;
     const building = { ...prev, ...patch };
     if (building.floors < 1) building.floors = 1;
-    if (building.floors > 20) building.floors = 20;
+    if (building.floors > 50) building.floors = 50;
     const footprintChanged =
       (patch.width !== undefined && patch.width !== prev.width) ||
       (patch.length !== undefined && patch.length !== prev.length);
@@ -722,87 +844,170 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
         }),
       }));
     }
-    const rebuilt = rebuild(get, building, get().pillars, floorPlates, {
-      footprintChanged,
-    });
+    let floors = get().floors.length
+      ? structuredClone(get().floors)
+      : createFloorsFromLegacy(
+          building,
+          get().pillars,
+          get().beams,
+          get().slabs,
+          get().floorPlates
+        );
+    if (patch.floorHeight !== undefined && patch.floorHeight !== prev.floorHeight) {
+      floors = floors.map((floor) => ({
+        ...floor,
+        height: patch.floorHeight ?? floor.height,
+        pillars: floor.pillars.map((pillar) => ({
+          ...pillar,
+          height: patch.floorHeight ?? pillar.height,
+        })),
+      }));
+    }
+    while (floors.length < building.floors) {
+      const source = floors[floors.length - 1] ?? makeFloor(building, 1);
+      floors.push(
+        cloneFloor(
+          source,
+          {
+            id: uid("floor"),
+            floorNumber: floors.length + 1,
+            name: `Floor ${floors.length + 1}`,
+            elevation: 0,
+            height: building.floorHeight,
+          },
+          "copy_layout"
+        )
+      );
+    }
+    floors = floors.slice(0, building.floors);
+    const rebuilt = rebuildFloors(
+      get,
+      building,
+      floors,
+      floorPlates,
+      { footprintChanged }
+    );
     const activeFloor = Math.min(get().activeFloor, building.floors);
-    set({ ...rebuilt, activeFloor });
+    const active = floorByNumber(rebuilt.floors, activeFloor) ?? rebuilt.floors[0];
+    set({ ...rebuilt, activeFloor, activeFloorId: active?.id ?? "" });
     scheduleEstimate(get, set);
   },
 
-  setActiveFloor: (floor) =>
+  setActiveFloor: (floorIdOrNumber) => {
+    const state = get();
+    const floor =
+      typeof floorIdOrNumber === "string"
+        ? floorById(state.floors, floorIdOrNumber)
+        : floorByNumber(state.floors, floorIdOrNumber);
+    if (!floor) return;
     set({
-      activeFloor: Math.min(Math.max(floor, 1), get().building.floors),
+      activeFloorId: floor.id,
+      activeFloor: floor.floorNumber,
       wallDraftStart: null,
-    }),
+      selectedPillarId: null,
+      selectedBeamId: null,
+      selectedSlabId: null,
+      selectedWallId: null,
+      selectedStairId: null,
+      selectedOpeningId: null,
+      multiSelectedPillarIds: [],
+      multiSelectedBeamIds: [],
+    });
+  },
 
-  addFloor: () => {
-    get().pushHistory();
-    const prevFloors = get().building.floors;
-    const building = {
-      ...get().building,
-      floors: Math.min(prevFloors + 1, 20),
-    };
-    // Duplicate last floor plate (walls/openings/stairs) onto the new storey
-    const lastPlate =
-      get().floorPlates.find((p) => p.floor === prevFloors) ??
-      get().floorPlates[get().floorPlates.length - 1];
-    const newFloor = building.floors;
-    const cloned: FloorPlate = lastPlate
-      ? {
-          floor: newFloor,
-          walls: lastPlate.walls.map((w) => ({
-            ...w,
-            id: uid("w"),
-            floor: newFloor,
-            height: building.floorHeight,
-          })),
-          openings: lastPlate.openings.map((o) => ({
-            ...o,
-            id: uid("o"),
-            floor: newFloor,
-          })),
-          stairs:
-            newFloor < building.floors
-              ? lastPlate.stairs.map((s) => ({
-                  ...s,
-                  id: uid("st"),
-                  floor: newFloor,
-                }))
-              : [],
-        }
-      : emptyFloorPlate(newFloor, building);
-    // Remap opening wallIds to cloned walls by index
-    if (lastPlate) {
-      cloned.openings = cloned.openings.map((o, i) => {
-        const srcWall = lastPlate.walls.find((w) => w.id === lastPlate.openings[i]?.wallId);
-        const idx = srcWall ? lastPlate.walls.indexOf(srcWall) : 0;
-        return { ...o, wallId: cloned.walls[idx]?.id ?? o.wallId };
-      });
-    }
-    const floorPlates = [...get().floorPlates, cloned];
-    commitStructure(get, set, building, get().pillars, floorPlates, {
-      activeFloor: building.floors,
+  updateFloor: (floorId, patch) => {
+    const state = get();
+    if (!floorById(state.floors, floorId)) return;
+    state.pushHistory();
+    const floors = state.floors.map((floor) => {
+      if (floor.id !== floorId) return floor;
+      const nextHeight = patch.height ?? floor.height;
+      return {
+        ...floor,
+        ...patch,
+        height: nextHeight,
+        pillars: floor.pillars.map((pillar) => ({
+          ...pillar,
+          height: patch.height === undefined ? pillar.height : nextHeight,
+        })),
+      };
+    });
+    const rebuilt = rebuildFloors(
+      get,
+      state.building,
+      floors,
+      floorPlatesFromFloors(floors)
+    );
+    const active = floorById(rebuilt.floors, state.activeFloorId) ?? rebuilt.floors[0];
+    set({ ...rebuilt, activeFloorId: active.id, activeFloor: active.floorNumber });
+  },
+
+  addFloor: (options) => {
+    const state = get();
+    if (state.floors.length >= 50) return;
+    state.pushHistory();
+    const source =
+      floorById(state.floors, options?.sourceFloorId ?? "") ??
+      state.floors[state.floors.length - 1];
+    if (!source) return;
+    const mode = options?.mode ?? "copy_layout";
+    const targetNumber = state.floors.length + 1;
+    const target = {
+      id: uid("floor"),
+      floorNumber: targetNumber,
+      name: `Floor ${targetNumber}`,
+      elevation: 0,
+      height: source.height || state.building.floorHeight,
+    } as const;
+    let newFloor = cloneFloor(source, target, mode);
+    newFloor = buildEmptyFloorMembers(newFloor, state.building, mode);
+    const floors = recalculateFloorElevations([...state.floors, newFloor]);
+    const building = { ...state.building, floors: floors.length };
+    const rebuilt = rebuildFloors(
+      get,
+      building,
+      floors,
+      floorPlatesFromFloors(floors)
+    );
+    const active = floors[floors.length - 1];
+    set({
+      ...rebuilt,
+      activeFloorId: active.id,
+      activeFloor: active.floorNumber,
       wallDraftStart: null,
     });
   },
 
-  removeFloor: (floor) => {
-    const target = floor ?? get().activeFloor;
-    if (get().building.floors <= 1) return;
-    get().pushHistory();
-    const building = { ...get().building, floors: get().building.floors - 1 };
-    const floorPlates = get()
-      .floorPlates.filter((p) => p.floor !== target)
-      .map((p, idx) => ({
-        ...p,
-        floor: idx + 1,
-        walls: p.walls.map((w) => ({ ...w, floor: idx + 1 })),
-        openings: p.openings.map((o) => ({ ...o, floor: idx + 1 })),
-        stairs: p.stairs.map((s) => ({ ...s, floor: idx + 1 })),
-      }));
-    commitStructure(get, set, building, get().pillars, floorPlates, {
-      activeFloor: Math.min(get().activeFloor, building.floors),
+  duplicateFloor: (sourceFloorId) => {
+    get().addFloor({ sourceFloorId, mode: "copy_layout" });
+  },
+
+  removeFloor: (floorIdOrNumber) => {
+    const state = get();
+    if (state.floors.length <= 1) return;
+    const target =
+      typeof floorIdOrNumber === "string"
+        ? floorById(state.floors, floorIdOrNumber)
+        : floorByNumber(state.floors, floorIdOrNumber ?? state.activeFloor);
+    if (!target) return;
+    state.pushHistory();
+    const remaining = state.floors.filter((floor) => floor.id !== target.id);
+    const floors = recalculateFloorElevations(remaining);
+    const building = { ...state.building, floors: floors.length };
+    const rebuilt = rebuildFloors(
+      get,
+      building,
+      floors,
+      floorPlatesFromFloors(floors)
+    );
+    const active =
+      floorById(floors, state.activeFloorId) ??
+      floors[Math.min(target.floorNumber - 1, floors.length - 1)];
+    set({
+      ...rebuilt,
+      activeFloorId: active?.id ?? floors[0].id,
+      activeFloor: active?.floorNumber ?? 1,
+      wallDraftStart: null,
     });
   },
 
@@ -995,54 +1200,153 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     if (!ids.length) return;
     const idSet = new Set(ids);
     const building = get().building;
-    const pillars = get().pillars.map((p) => {
-      if (!idSet.has(p.id)) return p;
-      const pos = clamp(building, p.x + dx, p.y + dy);
-      return { ...p, x: pos.x, y: pos.y };
+    const floors = get().floors.map((floor) => {
+      const moved = floor.pillars.map((pillar) => {
+        if (!idSet.has(pillar.id)) return pillar;
+        const pos = clamp(building, pillar.x + dx, pillar.y + dy);
+        return { ...pillar, x: pos.x, y: pos.y };
+      });
+      const movedIds = new Set(
+        moved.filter((pillar, index) => pillar !== floor.pillars[index]).map((pillar) => pillar.id)
+      );
+      return {
+        ...floor,
+        pillars: moved,
+        beams: floor.beams.map((beam) => ({
+          ...beam,
+          startX: movedIds.has(beam.startPillarId)
+            ? moved.find((pillar) => pillar.id === beam.startPillarId)?.x ?? beam.startX
+            : beam.startX,
+          startY: movedIds.has(beam.startPillarId)
+            ? moved.find((pillar) => pillar.id === beam.startPillarId)?.y ?? beam.startY
+            : beam.startY,
+          endX: movedIds.has(beam.endPillarId)
+            ? moved.find((pillar) => pillar.id === beam.endPillarId)?.x ?? beam.endX
+            : beam.endX,
+          endY: movedIds.has(beam.endPillarId)
+            ? moved.find((pillar) => pillar.id === beam.endPillarId)?.y ?? beam.endY
+            : beam.endY,
+        })),
+      };
     });
     if (get().isDragging) {
-      set({ pillars });
+      const flat = flattenFloors(floors);
+      set({ floors, pillars: flat.pillars, beams: flat.beams });
       return;
     }
-    commitStructure(get, set, building, pillars, get().floorPlates);
+    commitFloors(get, set, building, floors);
   },
 
   setInspectorOpen: (open) => set({ inspectorOpen: open }),
+  setFloorCreationOpen: (open) => set({ floorCreationOpen: open }),
 
-  updatePillar: (id, patch) => {
-    get().pushHistory();
-    const pillars = get().pillars.map((p) => {
-      if (p.id !== id) return p;
-      const next = { ...p, ...patch };
-      next.loadCapacity = pillarLoadCapacity(
-        next.width,
-        next.depth,
-        next.height,
-        next.material === "steel" ? "steel" : "concrete"
-      );
-      return next;
+  updatePillar: (floorIdOrMemberId, pillarIdOrPatch, patchArg, scopeArg) => {
+    const state = get();
+    const legacyCall = typeof pillarIdOrPatch !== "string";
+    const floorId = legacyCall ? state.activeFloorId : floorIdOrMemberId;
+    const pillarId = legacyCall ? floorIdOrMemberId : (pillarIdOrPatch as string);
+    const patch = legacyCall ? (pillarIdOrPatch as Partial<Pillar>) : patchArg ?? {};
+    const scope: EditScope = legacyCall ? "this_member" : scopeArg ?? "this_member";
+    const targetFloor = floorById(state.floors, floorId);
+    const target = targetFloor?.pillars.find((pillar) => pillar.id === pillarId);
+    if (!targetFloor || !target) return;
+    state.pushHistory();
+    const targetStackId = target.stackId;
+    const shouldUpdate = (floor: Floor, pillar: Pillar) => {
+      if (scope === "selected_members") {
+        return state.multiSelectedPillarIds.includes(pillar.id) || pillar.id === pillarId;
+      }
+      if (scope === "stack_all_floors") return pillar.stackId === targetStackId;
+      if (scope === "stack_upward") {
+        return pillar.stackId === targetStackId && floor.floorNumber >= targetFloor.floorNumber;
+      }
+      return floor.id === floorId && pillar.id === pillarId;
+    };
+    const floors = state.floors.map((floor) => ({
+      ...floor,
+      pillars: floor.pillars.map((pillar) => {
+        if (!shouldUpdate(floor, pillar)) return pillar;
+        const next = { ...pillar, ...patch, floorId: floor.id, baseElevation: floor.elevation };
+        return {
+          ...next,
+          loadCapacity: pillarLoadCapacity(
+            next.width,
+            next.depth,
+            next.height,
+            next.material === "steel" ? "steel" : "concrete"
+          ),
+        };
+      }),
+    }));
+    commitFloors(get, set, state.building, floors, {
+      selectedPillarId: pillarId,
     });
-    // Immediate geometry for snappy inspector; debounce engine + cost.
-    set({ pillars, selectedPillarId: id });
-    scheduleCommitStructure(get, set, { selectedPillarId: id });
   },
 
-  updateBeam: (id, patch) => {
-    get().pushHistory();
-    const beams = get().beams.map((b) =>
-      b.id === id ? { ...b, ...patch } : b
-    );
-    set({ beams, selectedBeamId: id });
-    scheduleCommitStructure(get, set, { selectedBeamId: id });
+  updateBeam: (floorIdOrMemberId, beamIdOrPatch, patchArg) => {
+    const state = get();
+    const legacyCall = typeof beamIdOrPatch !== "string";
+    const floorId = legacyCall ? state.activeFloorId : floorIdOrMemberId;
+    const beamId = legacyCall ? floorIdOrMemberId : (beamIdOrPatch as string);
+    const patch = legacyCall ? (beamIdOrPatch as Partial<Beam>) : patchArg ?? {};
+    const floor = floorById(state.floors, floorId);
+    const existingBeam = floor?.beams.find((beam) => beam.id === beamId);
+    if (!existingBeam) return;
+    if (
+      (patch.startPillarId ?? existingBeam.startPillarId) ===
+      (patch.endPillarId ?? existingBeam.endPillarId)
+    ) return;
+    state.pushHistory();
+    const floors = state.floors.map((item) => {
+      if (item.id !== floorId) return item;
+      const pillarsById = new Map(item.pillars.map((pillar) => [pillar.id, pillar]));
+      return {
+        ...item,
+        beams: item.beams.map((beam) => {
+          if (beam.id !== beamId) return beam;
+          const next = { ...beam, ...patch, floorId: item.id };
+          const start = pillarsById.get(next.startPillarId);
+          const end = pillarsById.get(next.endPillarId);
+          const startX = start?.x ?? next.startX;
+          const startY = start?.y ?? next.startY;
+          const endX = end?.x ?? next.endX;
+          const endY = end?.y ?? next.endY;
+          const length = Math.hypot(endX - startX, endY - startY);
+          return {
+            ...next,
+            startX,
+            startY,
+            endX,
+            endY,
+            length,
+            loadBearing: beamLoadBearing(next.width, next.depth, length),
+          };
+        }),
+      };
+    });
+    commitFloors(get, set, state.building, floors, { selectedBeamId: beamId });
   },
 
-  updateSlab: (id, patch) => {
-    get().pushHistory();
-    const slabs = get().slabs.map((s) =>
-      s.id === id ? { ...s, ...patch } : s
+  updateSlab: (floorIdOrMemberId, slabIdOrPatch, patchArg) => {
+    const state = get();
+    const legacyCall = typeof slabIdOrPatch !== "string";
+    const floorId = legacyCall ? state.activeFloorId : floorIdOrMemberId;
+    const slabId = legacyCall ? floorIdOrMemberId : (slabIdOrPatch as string);
+    const patch = legacyCall ? (slabIdOrPatch as Partial<Slab>) : patchArg ?? {};
+    const floor = floorById(state.floors, floorId);
+    if (!floor?.slabs.some((slab) => slab.id === slabId)) return;
+    state.pushHistory();
+    const floors = state.floors.map((item) =>
+      item.id !== floorId
+        ? item
+        : {
+            ...item,
+            slabs: item.slabs.map((slab) =>
+              slab.id === slabId ? { ...slab, ...patch, floorId: item.id } : slab
+            ),
+          }
     );
-    set({ slabs, selectedSlabId: id });
-    scheduleCommitStructure(get, set, { selectedSlabId: id });
+    commitFloors(get, set, state.building, floors, { selectedSlabId: slabId });
   },
 
   updateWall: (id, patch) => {
@@ -1149,44 +1453,63 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
 
   applyEngineeringRecommendation: (rec) => {
     get().pushHistory();
+    const state = get();
     const next = applyRecommendation(rec, {
-      pillars: get().pillars,
-      beams: get().beams,
-      slabs: get().slabs,
-      building: get().building,
+      pillars: state.pillars,
+      beams: state.beams,
+      slabs: state.slabs,
+      building: state.building,
     });
-    set({ pillars: next.pillars, beams: next.beams, slabs: next.slabs });
-    commitStructure(get, set, next.building, next.pillars, get().floorPlates);
+    const floors = state.floors.map((floor) => ({
+      ...floor,
+      pillars: floor.pillars.map((member) =>
+        next.pillars.find((item) => item.id === member.id) ?? member
+      ),
+      beams: floor.beams.map((member) =>
+        next.beams.find((item) => item.id === member.id) ?? member
+      ),
+      slabs: floor.slabs.map((member) =>
+        next.slabs.find((item) => item.id === member.id) ?? member
+      ),
+    }));
+    commitFloors(get, set, next.building, floors);
   },
 
   applyDesignOption: (opt) => {
     get().pushHistory();
     const patch = opt.applyPatch as Record<string, unknown>;
     if (opt.kind === "column") {
-      const pillars = get().pillars.map((p) =>
-        p.id === opt.memberId ? ({ ...p, ...patch } as Pillar) : p
-      );
-      commitStructure(get, set, get().building, pillars, get().floorPlates, {
+      const floors = get().floors.map((floor) => ({
+        ...floor,
+        pillars: floor.pillars.map((pillar) =>
+          pillar.id === opt.memberId ? ({ ...pillar, ...patch } as Pillar) : pillar
+        ),
+      }));
+      commitFloors(get, set, get().building, floors, {
         selectedPillarId: opt.memberId,
       });
       return;
     }
     if (opt.kind === "beam") {
-      const beams = get().beams.map((b) =>
-        b.id === opt.memberId ? ({ ...b, ...patch } as Beam) : b
-      );
-      set({ beams });
-      commitStructure(get, set, get().building, get().pillars, get().floorPlates, {
+      const floors = get().floors.map((floor) => ({
+        ...floor,
+        beams: floor.beams.map((beam) =>
+          beam.id === opt.memberId ? ({ ...beam, ...patch } as Beam) : beam
+        ),
+      }));
+      commitFloors(get, set, get().building, floors, {
         selectedBeamId: opt.memberId,
       });
       return;
     }
     if (opt.kind === "slab") {
-      const slabs = get().slabs.map((s) =>
-        s.id === opt.memberId ? ({ ...s, ...patch } as Slab) : s
-      );
-      set({ slabs });
-      commitStructure(get, set, get().building, get().pillars, get().floorPlates, {
+      const floors = get().floors.map((floor) => ({
+        ...floor,
+        slabs: floor.slabs.map((slab) =>
+          slab.id === opt.memberId ? ({ ...slab, ...patch } as Slab) : slab
+        ),
+      }));
+      commitFloors(get, set, get().building, floors, {
         selectedSlabId: opt.memberId,
       });
       return;
@@ -1220,19 +1543,48 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     });
   },
 
-  movePillar: (id, x, y) => {
-    // History is recorded when drag starts via setDragging(true).
-    const building = get().building;
-    const pos = clamp(building, x, y);
-    const pillars = get().pillars.map((p) =>
-      p.id === id ? { ...p, x: pos.x, y: pos.y } : p
-    );
-    // During drag: update positions only. Beams/cost rebuild on pointer up.
-    if (get().isDragging) {
-      set({ pillars });
+  movePillar: (floorIdOrMemberId, pillarIdOrX, xOrY, yArg) => {
+    const state = get();
+    const legacyCall = typeof pillarIdOrX === "number";
+    const floorId = legacyCall ? state.activeFloorId : floorIdOrMemberId;
+    const pillarId = legacyCall ? floorIdOrMemberId : (pillarIdOrX as string);
+    const x = legacyCall ? pillarIdOrX : xOrY;
+    const y = legacyCall ? xOrY : yArg;
+    const building = state.building;
+    const floor = floorById(state.floors, floorId);
+    const target = floor?.pillars.find((pillar) => pillar.id === pillarId);
+    if (!floor || !target) return;
+    if (y === undefined) return;
+    const pos = clamp(building, x as number, y);
+    const floors = state.floors.map((item) => {
+      if (item.id !== floorId) return item;
+      const pillars = item.pillars.map((pillar) =>
+        pillar.id === pillarId ? { ...pillar, x: pos.x, y: pos.y } : pillar
+      );
+      return {
+        ...item,
+        pillars,
+        beams: item.beams.map((beam) => ({
+          ...beam,
+          startX: beam.startPillarId === pillarId ? pos.x : beam.startX,
+          startY: beam.startPillarId === pillarId ? pos.y : beam.startY,
+          endX: beam.endPillarId === pillarId ? pos.x : beam.endX,
+          endY: beam.endPillarId === pillarId ? pos.y : beam.endY,
+          length: Math.hypot(
+            (beam.endPillarId === pillarId ? pos.x : beam.endX) -
+              (beam.startPillarId === pillarId ? pos.x : beam.startX),
+            (beam.endPillarId === pillarId ? pos.y : beam.endY) -
+              (beam.startPillarId === pillarId ? pos.y : beam.startY)
+          ),
+        })),
+      };
+    });
+    const flat = flattenFloors(floors);
+    if (state.isDragging) {
+      set({ floors, pillars: flat.pillars, beams: flat.beams, selectedPillarId: pillarId });
       return;
     }
-    commitStructure(get, set, building, pillars, get().floorPlates);
+    commitFloors(get, set, building, floors, { selectedPillarId: pillarId });
   },
 
   moveWallBy: (id, dx, dy) => {
@@ -1330,40 +1682,119 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
     }
   },
 
-  addPillar: (x, y) => {
-    get().pushHistory();
-    const building = get().building;
+  addPillar: (floorIdOrX, xOrY, yArg) => {
+    const state = get();
+    const legacyCall = typeof floorIdOrX === "number";
+    const floorId = legacyCall ? state.activeFloorId : floorIdOrX;
+    const x = legacyCall ? floorIdOrX : xOrY;
+    const y = legacyCall ? xOrY : yArg;
+    if (y === undefined) return;
+    const floor = floorById(state.floors, floorId);
+    if (!floor) return;
+    state.pushHistory();
+    const building = state.building;
     const pos = clamp(building, x, y);
+    const aligned = state.floors
+      .flatMap((item) => item.pillars)
+      .find((pillar) => Math.hypot(pillar.x - pos.x, pillar.y - pos.y) <= 0.02);
+    const nameIndex = floor.pillars.length + 1;
     const pillar: Pillar = {
       id: uid("p"),
-      name: `P${get().pillars.length + 1}`,
+      floorId,
+      stackId: aligned?.stackId ?? uid("stack"),
+      name: `P${nameIndex}`,
       x: pos.x,
       y: pos.y,
       width: 0.4,
       depth: 0.4,
       height: building.floorHeight,
+      baseElevation: floor.elevation,
       material: "concrete",
       loadCapacity: pillarLoadCapacity(0.4, 0.4, building.floorHeight),
     };
-    commitStructure(
-      get,
-      set,
-      building,
-      [...get().pillars, pillar],
-      get().floorPlates,
-      {
-        selectedPillarId: pillar.id,
-        tool: "select",
-      }
+    const floors = state.floors.map((item) =>
+      item.id === floorId
+        ? { ...item, pillars: [...item.pillars, pillar] }
+        : item
     );
+    commitFloors(get, set, building, floors, {
+      selectedPillarId: pillar.id,
+      tool: "select",
+    });
   },
 
-  removePillar: (id) => {
-    get().pushHistory();
-    const pillars = get().pillars.filter((p) => p.id !== id);
-    commitStructure(get, set, get().building, pillars, get().floorPlates, {
-      selectedPillarId:
-        get().selectedPillarId === id ? null : get().selectedPillarId,
+  removePillar: (floorIdOrMemberId, pillarIdArg) => {
+    const state = get();
+    const legacyCall = pillarIdArg === undefined;
+    const floorId = legacyCall ? state.activeFloorId : floorIdOrMemberId;
+    const pillarId = legacyCall ? floorIdOrMemberId : pillarIdArg;
+    const floor = floorById(state.floors, floorId);
+    if (!floor?.pillars.some((pillar) => pillar.id === pillarId)) return;
+    state.pushHistory();
+    const floors = state.floors.map((item) => {
+      if (item.id !== floorId) return item;
+      const beamIds = new Set(
+        item.beams
+          .filter(
+            (beam) =>
+              beam.startPillarId === pillarId || beam.endPillarId === pillarId
+          )
+          .map((beam) => beam.id)
+      );
+      return {
+        ...item,
+        pillars: item.pillars.filter((pillar) => pillar.id !== pillarId),
+        beams: item.beams.filter((beam) => !beamIds.has(beam.id)),
+      };
+    });
+    commitFloors(get, set, state.building, floors, {
+      selectedPillarId: state.selectedPillarId === pillarId ? null : state.selectedPillarId,
+    });
+  },
+
+  addBeam: (floorId, startPillarId, endPillarId) => {
+    const state = get();
+    const floor = floorById(state.floors, floorId);
+    const start = floor?.pillars.find((pillar) => pillar.id === startPillarId);
+    const end = floor?.pillars.find((pillar) => pillar.id === endPillarId);
+    if (!floor || !start || !end || start.id === end.id) return;
+    state.pushHistory();
+    const length = Math.hypot(end.x - start.x, end.y - start.y);
+    const beam: Beam = {
+      id: uid("b"),
+      floorId,
+      name: `B${floor.beams.length + 1}`,
+      startX: start.x,
+      startY: start.y,
+      endX: end.x,
+      endY: end.y,
+      width: 0.3,
+      depth: 0.5,
+      length,
+      material: "concrete",
+      loadBearing: beamLoadBearing(0.3, 0.5, length),
+      height: floor.height,
+      startPillarId,
+      endPillarId,
+    };
+    const floors = state.floors.map((item) =>
+      item.id === floorId ? { ...item, beams: [...item.beams, beam] } : item
+    );
+    commitFloors(get, set, state.building, floors, { selectedBeamId: beam.id });
+  },
+
+  removeBeam: (floorId, beamId) => {
+    const state = get();
+    const floor = floorById(state.floors, floorId);
+    if (!floor?.beams.some((beam) => beam.id === beamId)) return;
+    state.pushHistory();
+    const floors = state.floors.map((item) =>
+      item.id === floorId
+        ? { ...item, beams: item.beams.filter((beam) => beam.id !== beamId) }
+        : item
+    );
+    commitFloors(get, set, state.building, floors, {
+      selectedBeamId: state.selectedBeamId === beamId ? null : state.selectedBeamId,
     });
   },
 
@@ -1537,14 +1968,24 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
   applySuggestion: (suggestion) => {
     get().pushHistory();
     const building = get().building;
+    const floor = floorById(get().floors, get().activeFloorId);
+    if (!floor) return;
     const pillars = generatePillarGrid(
       building,
       suggestion.gridCols,
       suggestion.gridRows,
       suggestion.pillarWidth,
-      suggestion.pillarDepth
+      suggestion.pillarDepth,
+      1,
+      floor.id,
+      floor.elevation
     );
-    commitStructure(get, set, building, pillars, get().floorPlates, {
+    const nextFloor = {
+      ...floor,
+      pillars,
+      beams: generateBeamsFromPillars(pillars, 0.3, 0.5, floor.height, floor.id),
+    };
+    commitFloors(get, set, building, get().floors.map((item) => item.id === floor.id ? nextFloor : item), {
       selectedPillarId: pillars[0]?.id ?? null,
     });
   },
@@ -1555,8 +1996,24 @@ export const useStructureStore = create<StructureStore>((set, get) => ({
   regenerateFromGrid: (cols, rows, size = 0.4) => {
     get().pushHistory();
     const building = get().building;
-    const pillars = generatePillarGrid(building, cols, rows, size, size);
-    commitStructure(get, set, building, pillars, get().floorPlates, {
+    const floor = floorById(get().floors, get().activeFloorId);
+    if (!floor) return;
+    const pillars = generatePillarGrid(
+      building,
+      cols,
+      rows,
+      size,
+      size,
+      1,
+      floor.id,
+      floor.elevation
+    );
+    const nextFloor = {
+      ...floor,
+      pillars,
+      beams: generateBeamsFromPillars(pillars, 0.3, 0.5, floor.height, floor.id),
+    };
+    commitFloors(get, set, building, get().floors.map((item) => item.id === floor.id ? nextFloor : item), {
       selectedPillarId: pillars[0]?.id ?? null,
     });
   },

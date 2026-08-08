@@ -37,6 +37,7 @@ function ExportBridge() {
 
 function InitOrbitTarget() {
   const building = useStructureStore((s) => s.building);
+  const floors = useStructureStore((s) => s.floors);
   const activeFloor = useStructureStore((s) => s.activeFloor);
   const { controls, invalidate } = useThree();
   const seeded = useRef(false);
@@ -49,13 +50,14 @@ function InitOrbitTarget() {
     if (!orbit?.target) return;
     orbit.target.set(
       building.width / 2,
-      (activeFloor - 1) * building.floorHeight + building.floorHeight * 0.45,
+      floors.find((floor) => floor.floorNumber === activeFloor)?.elevation ??
+        (activeFloor - 1) * building.floorHeight + building.floorHeight * 0.45,
       building.length / 2
     );
     orbit.update?.();
     seeded.current = true;
     invalidate();
-  }, [controls, building, activeFloor, invalidate]);
+  }, [controls, building, floors, activeFloor, invalidate]);
   return null;
 }
 
@@ -67,6 +69,7 @@ function InvalidateOnChange() {
       s.pillars,
       s.beams,
       s.slabs,
+      s.floors,
       s.floorPlates,
       s.building,
       s.activeFloor,
@@ -121,11 +124,7 @@ function WorkspaceHelpers({
 function BuildingScene() {
   const mobile = useIsMobile();
   const building = useStructureStore((s) => s.building);
-  const pillarIds = useStructureStore(
-    useShallow((s) => s.pillars.map((p) => p.id))
-  );
-  const beams = useStructureStore((s) => s.beams);
-  const slabs = useStructureStore((s) => s.slabs);
+  const floors = useStructureStore((s) => s.floors);
   const floorPlates = useStructureStore((s) => s.floorPlates);
   const activeFloor = useStructureStore((s) => s.activeFloor);
   const selectedPillarId = useStructureStore((s) => s.selectedPillarId);
@@ -142,8 +141,7 @@ function BuildingScene() {
 
   const cx = building.width / 2;
   const cz = building.length / 2;
-  const totalHeight = building.floors * building.floorHeight;
-  const activeBaseY = (activeFloor - 1) * building.floorHeight;
+  const activeFloorData = floors.find((floor) => floor.floorNumber === activeFloor);
   const inside = viewMode === "inside";
   const explodeGap = viewFlags.exploded ? building.floorHeight * 0.55 : 0;
   const rotY = ((building.rotationDeg ?? 0) * Math.PI) / 180;
@@ -155,25 +153,19 @@ function BuildingScene() {
       selectedBeamId ||
       selectedOpeningId
   );
-  const pillarTotalHeight =
-    cutaway || inside
-      ? Math.max(activeBaseY + building.floorHeight, 0.5)
-      : totalHeight + explodeGap * Math.max(building.floors - 1, 0);
-
   const floorsToShow = useMemo(() => {
-    if (cutaway || inside) {
-      return Array.from({ length: activeFloor }, (_, i) => i + 1);
+    const mode = viewFlags.floorVisibility;
+    if (mode === "all" || mode === "exploded") return floors;
+    if (mode === "active_with_lower_ghosted" || cutaway || inside) {
+      return floors.filter((floor) => floor.floorNumber <= activeFloor);
     }
-    if (building.showAllFloors) {
-      return Array.from({ length: building.floors }, (_, i) => i + 1);
-    }
-    return [activeFloor];
+    return floors.filter((floor) => floor.floorNumber === activeFloor);
   }, [
-    building.showAllFloors,
-    building.floors,
+    floors,
     activeFloor,
     cutaway,
     inside,
+    viewFlags.floorVisibility,
   ]);
 
   const wallMap = useMemo(() => {
@@ -221,48 +213,51 @@ function BuildingScene() {
             />
           )}
 
-          {pillarIds.map((id) => (
-            <PillarMesh
-              key={id}
-              pillarId={id}
-              selected={id === selectedPillarId}
-              dimmed={
-                isolate &&
-                hasSelection &&
-                id !== selectedPillarId
-              }
-              baseY={0}
-              totalHeight={pillarTotalHeight}
-            />
-          ))}
-
-          {floorsToShow.map((floorNum) => {
-            const baseY =
-              (floorNum - 1) * building.floorHeight +
-              explodeGap * (floorNum - 1);
-            const active = floorNum === activeFloor;
-            const plate = floorPlates.find((p) => p.floor === floorNum);
+          {floorsToShow.map((floor) => {
+            const baseY = floor.elevation +
+              (viewFlags.floorVisibility === "exploded" || viewFlags.exploded
+                ? explodeGap * (floor.floorNumber - 1)
+                : 0);
+            const active = floor.floorNumber === activeFloor;
+            const ghosted = !active && viewFlags.floorVisibility === "active_with_lower_ghosted";
+            const plate = floorPlates.find((p) => p.floorId === floor.id || p.floor === floor.floorNumber);
             const hideCeiling = (cutaway || inside) && active;
             return (
-              <group key={floorNum}>
-                {slabs.map((slab) => (
-                  <SlabMesh
-                    key={`${slab.id}-${floorNum}`}
-                    slab={slab}
-                    floorBaseY={baseY}
-                    floorHeight={building.floorHeight}
-                    active={active}
-                    hideCeiling={hideCeiling}
-                    dimmed={isolate && hasSelection}
+              <group key={floor.id}>
+                {floor.pillars.map((pillar) => (
+                  <PillarMesh
+                    key={pillar.id}
+                    pillarId={pillar.id}
+                    selected={pillar.id === selectedPillarId}
+                    dimmed={
+                      ghosted ||
+                      (isolate && hasSelection && pillar.id !== selectedPillarId)
+                    }
+                    baseY={baseY}
+                    totalHeight={pillar.height || floor.height}
+                    selectable={active}
                   />
                 ))}
-                {beams.map((beam) => (
+                {floor.slabs.map((slab) => (
+                  <SlabMesh
+                    key={slab.id}
+                    slab={slab}
+                    floorBaseY={baseY}
+                    floorHeight={floor.height}
+                    active={active}
+                    hideCeiling={hideCeiling}
+                    dimmed={ghosted || (isolate && hasSelection && !active)}
+                  />
+                ))}
+                {floor.beams.map((beam) => (
                   <BeamMesh
-                    key={`${beam.id}-${floorNum}`}
+                    key={beam.id}
                     beam={beam}
                     floorBaseY={baseY}
                     selected={beam.id === selectedBeamId}
+                    active={active}
                     dimmed={
+                      ghosted ||
                       isolate &&
                       hasSelection &&
                       beam.id !== selectedBeamId
@@ -277,6 +272,7 @@ function BuildingScene() {
                     selected={wall.id === selectedWallId}
                     active={active}
                     dimmed={
+                      ghosted ||
                       isolate &&
                       hasSelection &&
                       wall.id !== selectedWallId
@@ -301,6 +297,7 @@ function BuildingScene() {
                       floorBaseY={baseY}
                       selected={opening.id === selectedOpeningId}
                       active={active}
+                      dimmed={ghosted}
                     />
                   );
                 })}
@@ -313,6 +310,7 @@ function BuildingScene() {
                     active={active}
                     selected={stair.id === selectedStairId}
                     dimmed={
+                      ghosted ||
                       isolate &&
                       hasSelection &&
                       stair.id !== selectedStairId
@@ -325,11 +323,11 @@ function BuildingScene() {
 
           <WallDraftPreview />
           <PillarDistanceDimensions />
-          <SelectionGizmo pillarHeight={pillarTotalHeight} />
+          <SelectionGizmo pillarHeight={activeFloorData?.height ?? building.floorHeight} />
         </group>
       </group>
 
-      <FocusSelectionCamera pillarHeight={pillarTotalHeight} />
+      <FocusSelectionCamera pillarHeight={activeFloorData?.height ?? building.floorHeight} />
 
       {!mobile && !inside && (
         <ContactShadows

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -20,8 +20,12 @@ import { useStructureStore } from "@/store/useStructureStore";
 import type {
   BarDiameterMm,
   ConcreteGrade,
+  Beam,
   MemberStatus,
+  EditScope,
+  Pillar,
   SectionShape,
+  Slab,
   SteelGrade,
   StairType,
   StirrupHook,
@@ -150,6 +154,37 @@ function NumInput({
   );
 }
 
+/** Structural dimensions are intentionally displayed in millimetres. */
+function MmInput({
+  value,
+  onChange,
+  step = 5,
+  min = 1,
+  max = 10000,
+}: {
+  value: number;
+  onChange: (meters: number) => void;
+  step?: number;
+  min?: number;
+  max?: number;
+}) {
+  const millimetres = Math.round(value * 1000);
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="number"
+        value={millimetres}
+        step={step}
+        min={min}
+        max={max}
+        onChange={(event) => onChange(Number(event.target.value) / 1000)}
+        className={cn(inputCls, "font-mono")}
+      />
+      <span className="shrink-0 text-xs text-slate-400">mm</span>
+    </div>
+  );
+}
+
 function SelectInput<T extends string | number>({
   value,
   options,
@@ -227,6 +262,7 @@ export default function PropertyInspector({
   variant?: "docked" | "floating";
 }) {
   const [tab, setTab] = useState<Tab>("general");
+  const [editScope, setEditScope] = useState<EditScope>("this_member");
   const inspectorOpen = useStructureStore((s) => s.inspectorOpen);
   const setInspectorOpen = useStructureStore((s) => s.setInspectorOpen);
   const selectedPillarId = useStructureStore((s) => s.selectedPillarId);
@@ -235,6 +271,7 @@ export default function PropertyInspector({
   const selectedWallId = useStructureStore((s) => s.selectedWallId);
   const selectedStairId = useStructureStore((s) => s.selectedStairId);
   const selectedOpeningId = useStructureStore((s) => s.selectedOpeningId);
+  const floors = useStructureStore((s) => s.floors);
   const multiSelectedPillarIds = useStructureStore(
     (s) => s.multiSelectedPillarIds
   );
@@ -246,9 +283,9 @@ export default function PropertyInspector({
   const advisor = useStructureStore((s) => s.advisor);
   const recommendations = useStructureStore((s) => s.recommendations);
   const designOptions = useStructureStore((s) => s.designOptions);
-  const updatePillar = useStructureStore((s) => s.updatePillar);
-  const updateBeam = useStructureStore((s) => s.updateBeam);
-  const updateSlab = useStructureStore((s) => s.updateSlab);
+  const updatePillarMember = useStructureStore((s) => s.updatePillar);
+  const updateBeamMember = useStructureStore((s) => s.updateBeam);
+  const updateSlabMember = useStructureStore((s) => s.updateSlab);
   const updateWall = useStructureStore((s) => s.updateWall);
   const updateStair = useStructureStore((s) => s.updateStair);
   const updateOpening = useStructureStore((s) => s.updateOpening);
@@ -277,6 +314,27 @@ export default function PropertyInspector({
     .flatMap((p) => p.openings)
     .find((o) => o.id === selectedOpeningId);
   const slab = slabs.find((s) => s.id === selectedSlabId);
+  const selectedMemberFloor = floors.find(
+    (floor) =>
+      floor.id === pillar?.floorId ||
+      floor.id === beam?.floorId ||
+      floor.id === slab?.floorId
+  );
+  const updatePillar = (id: string, patch: Partial<Pillar>) => {
+    const member = pillars.find((item) => item.id === id);
+    if (member) updatePillarMember(member.floorId, id, patch, editScope);
+  };
+  const updateBeam = (id: string, patch: Partial<Beam>) => {
+    const member = beams.find((item) => item.id === id);
+    if (member) updateBeamMember(member.floorId, id, patch);
+  };
+  const updateSlab = (id: string, patch: Partial<Slab>) => {
+    const member = slabs.find((item) => item.id === id);
+    if (member) updateSlabMember(member.floorId, id, patch);
+  };
+  useEffect(() => {
+    setEditScope("this_member");
+  }, [selectedPillarId, selectedBeamId, selectedSlabId]);
   const groupCount = multiSelectedPillarIds.length;
   const hasSelection = Boolean(
     pillar || beam || wall || stair || opening || slab || groupCount > 0
@@ -306,6 +364,9 @@ export default function PropertyInspector({
       opening?.name ??
       slab?.name ??
       "Building & foundation";
+  const memberIdentity = selectedMemberFloor && (pillar || beam || slab)
+    ? `${selectedMemberFloor.name} → ${memberName}`
+    : memberName;
   const status =
     pillar?.check?.status ?? beam?.check?.status ?? slab?.check?.status;
 
@@ -429,7 +490,7 @@ export default function PropertyInspector({
           </p>
           <div className="mt-1 flex items-center gap-2">
             <h2 className="font-display text-lg font-semibold text-[#121820]">
-              {memberName}
+              {memberIdentity}
             </h2>
             <StatusBadge status={status} />
           </div>
@@ -448,6 +509,24 @@ export default function PropertyInspector({
           </button>
         )}
       </div>
+
+      {(pillar || beam || slab) && (
+        <div className="border-b border-slate-100 bg-slate-50 px-4 py-2">
+          <label className="block text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+            Apply changes to
+            <select
+              value={editScope}
+              onChange={(event) => setEditScope(event.target.value as EditScope)}
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium normal-case tracking-normal text-slate-700"
+            >
+              <option value="this_member">This member only</option>
+              {pillar && <option value="stack_upward">Same column stack from this floor upward</option>}
+              {pillar && <option value="stack_all_floors">Same column stack on every floor</option>}
+              {pillar && <option value="selected_members">Selected members only</option>}
+            </select>
+          </label>
+        </div>
+      )}
 
       <div className="flex gap-1 overflow-x-auto border-b border-slate-100 px-2 py-2">
         {TABS.map((t) => (
@@ -517,6 +596,34 @@ export default function PropertyInspector({
                     }
                   />
                 </Field>
+                <Field label="Clear cover">
+                  <NumInput
+                    value={pillar.clearCoverMm ?? 40}
+                    step={5}
+                    min={20}
+                    max={100}
+                    unit="mm"
+                    onChange={(clearCoverMm) =>
+                      updatePillar(pillar.id, { clearCoverMm })
+                    }
+                  />
+                </Field>
+                <Field label="Transfer condition">
+                  <SelectInput
+                    value={pillar.transferCondition ?? "none"}
+                    options={["none", "transfer_beam", "transfer_slab"] as const}
+                    onChange={(transferCondition) =>
+                      updatePillar(pillar.id, { transferCondition })
+                    }
+                    format={(value) =>
+                      value === "none"
+                        ? "None"
+                        : value === "transfer_beam"
+                          ? "Transfer beam"
+                          : "Transfer slab"
+                    }
+                  />
+                </Field>
                 <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
                   Connected beams: {pillar.connectedBeamIds?.length ?? 0} ·
                   Footing linked · Loads cascade on edit
@@ -567,6 +674,34 @@ export default function PropertyInspector({
                     options={["simply", "continuous", "cantilever"] as const}
                     onChange={(supportCondition) =>
                       updateBeam(beam.id, { supportCondition })
+                    }
+                  />
+                </Field>
+                <Field label="Start pillar">
+                  <SelectInput
+                    value={beam.startPillarId}
+                    options={
+                      (selectedMemberFloor?.pillars ?? []).map((item) => item.id)
+                    }
+                    onChange={(startPillarId) =>
+                      updateBeam(beam.id, { startPillarId })
+                    }
+                    format={(id) =>
+                      selectedMemberFloor?.pillars.find((item) => item.id === id)?.name ?? id
+                    }
+                  />
+                </Field>
+                <Field label="End pillar">
+                  <SelectInput
+                    value={beam.endPillarId}
+                    options={
+                      (selectedMemberFloor?.pillars ?? []).map((item) => item.id)
+                    }
+                    onChange={(endPillarId) =>
+                      updateBeam(beam.id, { endPillarId })
+                    }
+                    format={(id) =>
+                      selectedMemberFloor?.pillars.find((item) => item.id === id)?.name ?? id
                     }
                   />
                 </Field>
@@ -734,12 +869,11 @@ export default function PropertyInspector({
               />
             </Field>
             <Field label={pillar.shape === "circular" ? "Diameter" : "Width"}>
-              <NumInput
+              <MmInput
                 value={pillar.width}
-                step={0.05}
-                min={0.2}
-                max={1.2}
-                unit="m"
+                step={10}
+                min={200}
+                max={1200}
                 onChange={(width) => {
                   if (pillar.shape === "square" || pillar.shape === "circular") {
                     updatePillar(pillar.id, { width, depth: width });
@@ -751,43 +885,39 @@ export default function PropertyInspector({
             </Field>
             {pillar.shape !== "circular" && pillar.shape !== "square" && (
               <Field label="Length (depth)">
-                <NumInput
+                <MmInput
                   value={pillar.depth}
-                  step={0.05}
-                  min={0.2}
-                  max={1.2}
-                  unit="m"
+                  step={10}
+                  min={200}
+                  max={1200}
                   onChange={(depth) => updatePillar(pillar.id, { depth })}
                 />
               </Field>
             )}
             <Field label="Height">
-              <NumInput
+              <MmInput
                 value={pillar.height}
-                step={0.1}
-                min={2}
-                max={6}
-                unit="m"
+                step={50}
+                min={2000}
+                max={6000}
                 onChange={(height) => updatePillar(pillar.id, { height })}
               />
             </Field>
             <Field label="X position">
-              <NumInput
+              <MmInput
                 value={pillar.x}
-                step={0.05}
+                step={50}
                 min={0}
-                max={building.width}
-                unit="m"
+                max={Math.round(building.width * 1000)}
                 onChange={(x) => updatePillar(pillar.id, { x })}
               />
             </Field>
             <Field label="Y position (plan)">
-              <NumInput
+              <MmInput
                 value={pillar.y}
-                step={0.05}
+                step={50}
                 min={0}
-                max={building.length}
-                unit="m"
+                max={Math.round(building.length * 1000)}
                 onChange={(y) => updatePillar(pillar.id, { y })}
               />
             </Field>
@@ -816,22 +946,20 @@ export default function PropertyInspector({
         {tab === "geometry" && beam && (
           <>
             <Field label="Width">
-              <NumInput
+              <MmInput
                 value={beam.width}
-                step={0.05}
-                min={0.2}
-                max={0.6}
-                unit="m"
+                step={10}
+                min={200}
+                max={600}
                 onChange={(width) => updateBeam(beam.id, { width })}
               />
             </Field>
             <Field label="Depth">
-              <NumInput
+              <MmInput
                 value={beam.depth}
-                step={0.05}
-                min={0.25}
-                max={1.2}
-                unit="m"
+                step={10}
+                min={250}
+                max={1200}
                 onChange={(depth) => updateBeam(beam.id, { depth })}
               />
             </Field>
@@ -855,12 +983,11 @@ export default function PropertyInspector({
         {tab === "geometry" && slab && !pillar && !beam && !wall && (
           <>
             <Field label="Thickness">
-              <NumInput
+              <MmInput
                 value={slab.thickness}
-                step={0.025}
-                min={0.1}
-                max={0.4}
-                unit="m"
+                step={5}
+                min={100}
+                max={400}
                 onChange={(thickness) => updateSlab(slab.id, { thickness })}
               />
             </Field>

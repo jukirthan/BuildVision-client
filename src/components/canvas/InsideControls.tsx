@@ -13,6 +13,7 @@ export default function InsideControls({ enabled }: { enabled: boolean }) {
   const { camera, gl } = useThree();
   const building = useStructureStore((s) => s.building);
   const activeFloor = useStructureStore((s) => s.activeFloor);
+  const floors = useStructureStore((s) => s.floors);
   const setViewMode = useStructureStore((s) => s.setViewMode);
   const isDragging = useStructureStore((s) => s.isDragging);
 
@@ -34,7 +35,9 @@ export default function InsideControls({ enabled }: { enabled: boolean }) {
   const placedForFloor = useRef<number | null>(null);
 
   const eyeHeight = 1.65;
-  const floorY = (activeFloor - 1) * building.floorHeight;
+  const activeFloorData = floors.find((floor) => floor.floorNumber === activeFloor);
+  const floorY = activeFloorData?.elevation ?? (activeFloor - 1) * building.floorHeight;
+  const floorHeight = activeFloorData?.height ?? building.floorHeight;
 
   // Place camera inside when entering / changing floor.
   useEffect(() => {
@@ -167,7 +170,7 @@ export default function InsideControls({ enabled }: { enabled: boolean }) {
       building.length - margin
     );
     const minY = floorY + 0.9;
-    const maxY = floorY + building.floorHeight - 0.35;
+    const maxY = floorY + floorHeight - 0.35;
     camera.position.y = THREE.MathUtils.clamp(camera.position.y, minY, maxY);
 
     camera.rotation.order = "YXZ";

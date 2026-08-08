@@ -16,9 +16,7 @@ export default function StatusBar() {
   const selectedStairId = useStructureStore((s) => s.selectedStairId);
   const selectedOpeningId = useStructureStore((s) => s.selectedOpeningId);
   const selectedSlabId = useStructureStore((s) => s.selectedSlabId);
-  const pillars = useStructureStore((s) => s.pillars);
-  const beams = useStructureStore((s) => s.beams);
-  const slabs = useStructureStore((s) => s.slabs);
+  const floors = useStructureStore((s) => s.floors);
   const floorPlates = useStructureStore((s) => s.floorPlates);
   const { unit } = useLengthUnit();
   const [fps, setFps] = useState<number | null>(null);
@@ -43,6 +41,10 @@ export default function StatusBar() {
   }, []);
 
   const plate = floorPlates.find((p) => p.floor === activeFloor);
+  const floor = floors.find((item) => item.floorNumber === activeFloor);
+  const pillars = floor?.pillars ?? [];
+  const beams = floor?.beams ?? [];
+  const slabs = floor?.slabs ?? [];
   const selection =
     pillars.find((p) => p.id === selectedPillarId)?.name ||
     beams.find((b) => b.id === selectedBeamId)?.name ||
@@ -56,7 +58,7 @@ export default function StatusBar() {
     <footer className="flex h-8 shrink-0 items-center gap-3 border-t border-[#e2e8f0] bg-white px-3 text-[11px] text-[#64748b]">
       <span className="font-medium capitalize text-[#334155]">Tool: {tool}</span>
       <span className="text-[#cbd5e1]">|</span>
-      <span>Floor {activeFloor}</span>
+      <span>{floor?.name ?? `Floor ${activeFloor}`}</span>
       <span className="text-[#cbd5e1]">|</span>
       <span>
         Grid{" "}

@@ -51,12 +51,14 @@ export function PillarMesh({
   selected,
   baseY,
   totalHeight,
+  selectable = true,
   dimmed = false,
 }: {
   pillarId: string;
   selected: boolean;
   baseY: number;
   totalHeight: number;
+  selectable?: boolean;
   dimmed?: boolean;
 }) {
   const pillar = useStructureStore((s) =>
@@ -90,7 +92,7 @@ export function PillarMesh({
   const draggingRef = useRef(false);
 
   const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
-    if (!pillar) return;
+    if (!pillar || !selectable) return;
     e.stopPropagation();
     // Prevent OrbitControls from stealing the gesture on this frame.
     e.nativeEvent?.preventDefault?.();
@@ -180,23 +182,25 @@ export function PillarMesh({
   }, [dragging, pillarId, baseY, building, camera, gl.domElement]);
 
   if (!pillar) return null;
+  const segmentHeight = pillar.height || totalHeight;
 
   const highlighted = selected || dragging;
   const color = inGroup ? PILLAR_GROUP : highlighted ? PILLAR_SEL : PILLAR;
 
   return (
     <group
-      position={[pillar.x, baseY + totalHeight / 2, pillar.y]}
+      position={[pillar.x, baseY + segmentHeight / 2, pillar.y]}
       rotation={[0, ((pillar.rotationDeg ?? 0) * Math.PI) / 180, 0]}
     >
       <mesh
         ref={meshRef}
+        raycast={selectable ? undefined : () => null}
         castShadow
         receiveShadow
         onPointerDown={onPointerDown}
         onPointerOver={(e) => {
           e.stopPropagation();
-          if (tool === "select" && !draggingRef.current)
+          if (selectable && tool === "select" && !draggingRef.current)
             gl.domElement.style.cursor = "grab";
         }}
         onPointerOut={() => {
@@ -208,12 +212,12 @@ export function PillarMesh({
             args={[
               Math.max(pillar.width, pillar.depth) / 2,
               Math.max(pillar.width, pillar.depth) / 2,
-              totalHeight,
+              segmentHeight,
               24,
             ]}
           />
         ) : (
-          <boxGeometry args={[pillar.width, totalHeight, pillar.depth]} />
+          <boxGeometry args={[pillar.width, segmentHeight, pillar.depth]} />
         )}
         <meshStandardMaterial
           color={color}
@@ -236,7 +240,7 @@ export function PillarMesh({
               args={[
                 Math.max(pillar.width, pillar.depth) / 2 + 0.04,
                 Math.max(pillar.width, pillar.depth) / 2 + 0.04,
-                totalHeight + 0.08,
+                segmentHeight + 0.08,
                 24,
               ]}
             />
@@ -244,7 +248,7 @@ export function PillarMesh({
             <boxGeometry
               args={[
                 pillar.width + 0.08,
-                totalHeight + 0.08,
+                segmentHeight + 0.08,
                 pillar.depth + 0.08,
               ]}
             />
@@ -264,7 +268,7 @@ export function PillarMesh({
               args={[
                 Math.max(pillar.width, pillar.depth) / 2 - 0.04,
                 Math.max(pillar.width, pillar.depth) / 2 - 0.04,
-                totalHeight * 0.98,
+                segmentHeight * 0.98,
                 16,
               ]}
             />
@@ -272,7 +276,7 @@ export function PillarMesh({
             <boxGeometry
               args={[
                 Math.max(pillar.width - 0.08, 0.05),
-                totalHeight * 0.98,
+                segmentHeight * 0.98,
                 Math.max(pillar.depth - 0.08, 0.05),
               ]}
             />
@@ -288,13 +292,13 @@ export function PillarMesh({
       {(selected || inGroup || showLabels) && (
         <Html
           distanceFactor={22}
-          position={[0, totalHeight / 2 + 0.5, 0]}
+          position={[0, segmentHeight / 2 + 0.5, 0]}
           center
           pointerEvents="none"
         >
           <div className="rounded bg-[#121820]/90 px-2 py-1 text-[10px] font-medium text-white shadow-lg">
             {pillar.name}
-            {showDimensions &&
+            {(showDimensions || selected) &&
               ` · ${Math.round(pillar.width * 1000)}×${Math.round(pillar.depth * 1000)}`}
             {inGroup && " · group"}
             {selected && " · drag"}
@@ -309,17 +313,20 @@ export function BeamMesh({
   beam,
   floorBaseY,
   selected,
+  active = true,
   dimmed = false,
 }: {
   beam: Beam;
   floorBaseY: number;
   selected?: boolean;
+  active?: boolean;
   dimmed?: boolean;
 }) {
   const selectBeam = useStructureStore((s) => s.selectBeam);
   const tool = useStructureStore((s) => s.tool);
   const wireframe = useStructureStore((s) => s.viewFlags.wireframe);
   const showLabels = useStructureStore((s) => s.viewFlags.showLabels);
+  const showDimensions = useStructureStore((s) => s.viewFlags.showDimensions);
   const toggleMultiSelectBeam = useStructureStore(
     (s) => s.toggleMultiSelectBeam
   );
@@ -347,9 +354,10 @@ export function BeamMesh({
     <group position={position} rotation={[0, rotationY, 0]}>
       <mesh
         castShadow
+        raycast={active ? undefined : () => null}
         onClick={(e) => {
           e.stopPropagation();
-          if (tool !== "select") return;
+          if (tool !== "select" || !active) return;
           if (e.ctrlKey || e.metaKey) {
             toggleMultiSelectBeam(beam.id);
             return;
@@ -379,6 +387,8 @@ export function BeamMesh({
         >
           <div className="rounded bg-[#121820]/85 px-1.5 py-0.5 text-[9px] text-white">
             {beam.name}
+            {(showDimensions || selected) &&
+              ` · ${Math.round(beam.width * 1000)}×${Math.round(beam.depth * 1000)} mm`}
             {inGroup && " · group"}
           </div>
         </Html>
@@ -414,6 +424,7 @@ export function SlabMesh({
         slab.centerY,
       ]}
       receiveShadow
+      raycast={active ? undefined : () => null}
       onClick={(e) => {
         e.stopPropagation();
         if (tool === "select" && active) selectSlab(slab.id);
@@ -555,6 +566,7 @@ export function WallMesh({
           with a mouse and especially with a finger on touch screens. */}
       <mesh
         visible={false}
+        raycast={active ? undefined : () => null}
         onPointerDown={onPointerDown}
         onPointerOver={(e) => {
           e.stopPropagation();
@@ -589,12 +601,14 @@ export function OpeningMesh({
   floorBaseY,
   selected,
   active,
+  dimmed = false,
 }: {
   opening: Opening;
   wall: Wall;
   floorBaseY: number;
   selected?: boolean;
   active?: boolean;
+  dimmed?: boolean;
 }) {
   const handleCanvasClick = useStructureStore((s) => s.handleCanvasClick);
   const selectOpening = useStructureStore((s) => s.selectOpening);
@@ -621,6 +635,7 @@ export function OpeningMesh({
     <mesh
       position={mesh.position}
       rotation={[0, mesh.rotationY, 0]}
+      raycast={active ? undefined : () => null}
       onClick={(e) => {
         e.stopPropagation();
         if (!active) return;
@@ -646,7 +661,7 @@ export function OpeningMesh({
       <meshStandardMaterial
         color={selected ? DOOR_SEL : opening.type === "door" ? DOOR : WINDOW}
         transparent
-        opacity={opening.type === "window" ? 0.55 : 0.9}
+        opacity={dimmed ? 0.14 : opening.type === "window" ? 0.55 : 0.9}
         metalness={opening.type === "window" ? 0.4 : 0.05}
         roughness={0.3}
         emissive={selected ? "#2563EB" : "#000000"}
@@ -710,11 +725,12 @@ export function StairMesh({
   const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     e.nativeEvent?.preventDefault?.();
+    if (!active) return;
     if (tool === "delete") {
       handleCanvasClick(stair.x, stair.y, { kind: "stair", id: stair.id });
       return;
     }
-    if (tool !== "select" || !active) return;
+    if (tool !== "select") return;
     selectStair(stair.id);
     draggingRef.current = true;
     setLocalDrag(true);
@@ -779,6 +795,7 @@ export function StairMesh({
           "miss" a click/tap when selecting or dragging the staircase. */}
       <mesh
         visible={false}
+        raycast={active ? undefined : () => null}
         position={[0, floorHeight / 2, 0]}
         onPointerDown={onPointerDown}
         onPointerOver={(e) => {
@@ -850,7 +867,7 @@ export function FoundationSystem({
   dimmed?: boolean;
 }) {
   const building = useStructureStore((s) => s.building);
-  const pillars = useStructureStore((s) => s.pillars);
+  const pillars = useStructureStore((s) => s.floors[0]?.pillars ?? []);
   const footing = building.foundation;
   if (!footing) return null;
 
@@ -1200,11 +1217,14 @@ export function Footprint({
 /** Clickable plane on the active floor for placing / aiming while editing upstairs. */
 export function ActiveFloorPlane() {
   const building = useStructureStore((s) => s.building);
+  const floors = useStructureStore((s) => s.floors);
   const activeFloor = useStructureStore((s) => s.activeFloor);
   const handleCanvasClick = useStructureStore((s) => s.handleCanvasClick);
   const tool = useStructureStore((s) => s.tool);
   const clearMultiSelect = useStructureStore((s) => s.clearMultiSelect);
-  const y = (activeFloor - 1) * building.floorHeight + 0.03;
+  const y =
+    (floors.find((floor) => floor.floorNumber === activeFloor)?.elevation ??
+      (activeFloor - 1) * building.floorHeight) + 0.03;
   if (activeFloor <= 1) return null;
 
   return (
@@ -1244,11 +1264,14 @@ export function ActiveFloorPlane() {
 
 export function WallDraftPreview() {
   const draft = useStructureStore((s) => s.wallDraftStart);
+  const floors = useStructureStore((s) => s.floors);
   const activeFloor = useStructureStore((s) => s.activeFloor);
   const building = useStructureStore((s) => s.building);
   if (!draft) return null;
+  const floor = floors.find((item) => item.floorNumber === activeFloor);
   const y =
-    (activeFloor - 1) * building.floorHeight + building.floorHeight / 2;
+    (floor?.elevation ?? (activeFloor - 1) * building.floorHeight) +
+    (floor?.height ?? building.floorHeight) / 2;
   return (
     <mesh position={[draft.x, y, draft.y]}>
       <sphereGeometry args={[0.18, 16, 16]} />

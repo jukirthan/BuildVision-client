@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test:multi-floor": "node scripts/run-multi-floor-invariants.mjs",
     "pwa:icons": "node scripts/generate-pwa-icons.mjs",
     "docs:guide": "node scripts/generate-user-guide.js"
   },
