@@ -15,7 +15,6 @@ function SignUpForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [role, setRole] = useState("engineer");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -39,7 +38,7 @@ function SignUpForm() {
 
     setLoading(true);
     try {
-      const res = await api.register(name.trim(), email.trim(), password, role);
+      const res = await api.register(name.trim(), email.trim(), password);
       if (!res.success || !res.data) {
         setError(
           res.message ||
@@ -102,19 +101,6 @@ function SignUpForm() {
             autoComplete="name"
             disabled={loading}
           />
-        </label>
-        <label className="auth-field">
-          <span>Role</span>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            className="auth-input"
-            disabled={loading}
-          >
-            <option value="engineer">Civil engineer</option>
-            <option value="architect">Architect</option>
-            <option value="contractor">Contractor</option>
-          </select>
         </label>
         <label className="auth-field">
           <span>Email</span>

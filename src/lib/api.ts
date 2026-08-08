@@ -251,7 +251,7 @@ export const api = {
       }
     ),
 
-  register: (name: string, email: string, password: string, role?: string) =>
+  register: (name: string, email: string, password: string) =>
     requestWithFallback<AuthPayload>(
       ["/api/auth/register", "/api/users/register"],
       {
@@ -260,7 +260,6 @@ export const api = {
           name: name.trim(),
           email: email.trim().toLowerCase(),
           password,
-          role,
         }),
       }
     ),
