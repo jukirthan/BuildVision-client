@@ -36,7 +36,7 @@ export default function FinalCTA() {
 
         <Reveal delay={0.55} className="mt-9">
           <div className="flex flex-wrap items-center justify-center gap-3.5">
-            <MagneticButton href="/signup">Start Designing</MagneticButton>
+            <MagneticButton href="/login">Start Designing</MagneticButton>
             <MagneticButton href="/contact" variant="ghost">
               Talk to sales
             </MagneticButton>

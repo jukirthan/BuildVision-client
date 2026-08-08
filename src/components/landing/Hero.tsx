@@ -198,7 +198,7 @@ export default function Hero() {
 
         <Reveal delay={0.7} className="mt-9">
           <div className="flex flex-wrap items-center justify-center gap-3.5">
-            <MagneticButton href="/signup">Start Designing</MagneticButton>
+            <MagneticButton href="/login">Start Designing</MagneticButton>
             <MagneticButton href="#demo" variant="ghost">
               <Play size={15} className="fill-current" /> Watch Demo
             </MagneticButton>
